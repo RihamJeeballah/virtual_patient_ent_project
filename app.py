@@ -2,15 +2,17 @@ import streamlit as st
 import os
 import re
 import json
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Dict
 from openai import OpenAI
 from dotenv import load_dotenv
+from gtts import gTTS
 
 # ======== LOAD API KEY ========
 load_dotenv()
-client = OpenAI()
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 # ======== CONFIG ========
 CASES_DIR = Path("cases")
@@ -31,10 +33,8 @@ def load_case(file_path: Path) -> Dict[str, str]:
         case[header] = body
     return case
 
-
 def list_cases():
     return [f for f in CASES_DIR.glob("*.md")]
-
 
 def call_llm(prompt: str, history: list):
     try:
@@ -50,10 +50,25 @@ def call_llm(prompt: str, history: list):
         st.error(f"⚠️ LLM error: {e}")
         return "⚠️ Sorry, I couldn’t generate a response."
 
-
 def summarize_chat(history):
     text = "\n".join([f"{h['role'].capitalize()}: {h['content']}" for h in history])
     return f"# Encounter Summary\n\n{text}"
+
+def tts_response(text):
+    """Convert patient reply to audio using gTTS"""
+    tts = gTTS(text=text, lang="en")
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+    tts.save(temp_file.name)
+    return temp_file.name
+
+def transcribe_audio(file_path):
+    """Use Whisper STT to transcribe doctor's audio input"""
+    with open(file_path, "rb") as audio_file:
+        transcript = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=audio_file
+        )
+    return transcript.text
 
 # ======== STREAMLIT UI ========
 st.set_page_config(page_title="Virtual ENT Patient", layout="centered")
@@ -74,7 +89,7 @@ with col2:
     )
 
 st.markdown("---")
-st.title("🩺 Virtual ENT Patient")
+st.title("🩺 Virtual ENT Patient (Voice + Text)")
 
 # ======== STATE ========
 if "case" not in st.session_state:
@@ -104,50 +119,32 @@ else:
     st.subheader(case["title"])
     st.markdown(f"**Opening Stem:** {case.get('Opening Stem','')}")
 
-    # ======== Start doctor greeting ========
+    # ======== Initial greeting ========
     if not st.session_state.started:
-        doctor_greeting = "Hello, I'm your doctor today. What brings you in?"
-        st.session_state.history.append({"role": "user", "content": doctor_greeting})
+        greeting = "Hello, I'm your doctor today. What brings you in?"
+        st.session_state.history.append({"role": "user", "content": greeting})
 
-        patient_intro_prompt = f"""
+        patient_prompt = f"""
 You are the patient in this ENT clinical case.
-Respond naturally to the doctor's greeting, based on the case details below.
-Be realistic and concise.
+Respond naturally, using first-person language, without giving away all details at once.
+Tone: match the scenario's tone.
 
 Case details:
 {json.dumps(case, indent=2)}
 """
-        patient_response = call_llm(patient_intro_prompt, [{"role": "user", "content": doctor_greeting}])
-        st.session_state.history.append({"role": "assistant", "content": patient_response})
+        patient_response = call_llm(patient_prompt, [{"role": "user", "content": greeting}])
+        audio_path = tts_response(patient_response)
+        st.session_state.history.append({"role": "assistant", "content": patient_response, "audio": audio_path})
         st.session_state.started = True
 
-    # ======== Custom Chat Bubbles with Scroll ========
+    # ======== Chat UI ========
     st.markdown(
         """
         <style>
-        .chat-container {
-            height: 500px;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-        }
-        .chat-bubble {
-            border-radius: 15px;
-            padding: 10px 15px;
-            margin: 5px 0;
-            max-width: 80%;
-            word-wrap: break-word;
-        }
-        .doctor {
-            background-color: #D7EBFF;
-            color: black;
-            align-self: flex-start;
-        }
-        .patient {
-            background-color: #F1F1F1;
-            color: black;
-            align-self: flex-end;
-        }
+        .chat-container { height: 500px; overflow-y: auto; display: flex; flex-direction: column; }
+        .chat-bubble { border-radius: 15px; padding: 10px 15px; margin: 5px 0; max-width: 80%; word-wrap: break-word; }
+        .doctor { background-color: #D7EBFF; color: black; align-self: flex-start; }
+        .patient { background-color: #F1F1F1; color: black; align-self: flex-end; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -159,42 +156,62 @@ Case details:
             chat_html += f"<div class='chat-bubble doctor'>👨‍⚕️ <strong>Doctor:</strong> {msg['content']}</div>"
         else:
             chat_html += f"<div class='chat-bubble patient'>🧑 <strong>Patient:</strong> {msg['content']}</div>"
+            if "audio" in msg:
+                st.audio(msg["audio"], format="audio/mp3")
     chat_html += "<div id='bottom'></div></div>"
     chat_html += "<script>var chat=document.querySelector('.chat-container');chat.scrollTop=chat.scrollHeight;</script>"
     st.markdown(chat_html, unsafe_allow_html=True)
 
-    # ======== Doctor input ========
+    # ======== TEXT INPUT ========
     if prompt := st.chat_input("Ask your patient..."):
         st.session_state.history.append({"role": "user", "content": prompt})
-
         system_prompt = f"""
 You are simulating the patient described in the following clinical case.
-Only use information contained in the case file.
-Respond naturally as the patient, revealing details only when asked.
+- Speak in first person only.
+- Do not give all details at once.
+- Do not use information outside this case.
+- Match tone to the scenario.
 
 Case details:
 {json.dumps(case, indent=2)}
 """
         reply = call_llm(system_prompt, st.session_state.history)
-        st.session_state.history.append({"role": "assistant", "content": reply})
+        audio_path = tts_response(reply)
+        st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
+        st.rerun()
 
-        # === Auto refresh (safe for new + old Streamlit versions) ===
-        if hasattr(st, "rerun"):
-            st.rerun()
-        else:
-            st.experimental_rerun()
+    # ======== VOICE INPUT ========
+    st.markdown("🎤 **Record your question:**")
+    audio_file = st.audio_input("Record voice")
+    if audio_file is not None:
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        temp_file.write(audio_file.getvalue())
+        temp_file.flush()
+        transcription = transcribe_audio(temp_file.name)
+        st.session_state.history.append({"role": "user", "content": transcription})
+        system_prompt = f"""
+You are simulating the patient described in the following clinical case.
+- Speak in first person only.
+- Do not give all details at once.
+- Do not use information outside this case.
+- Match tone to the scenario.
 
-    # ======== End encounter ========
+Case details:
+{json.dumps(case, indent=2)}
+"""
+        reply = call_llm(system_prompt, st.session_state.history)
+        audio_path = tts_response(reply)
+        st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
+        st.rerun()
+
+    # ======== END ENCOUNTER ========
     if st.button("End Encounter"):
         summary = summarize_chat(st.session_state.history)
         st.session_state.summary = summary
-
         log_name = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{st.session_state.case_name}.json"
         with open(LOGS_DIR / log_name, "w", encoding="utf-8") as f:
             json.dump(st.session_state.history, f, indent=2)
-
         st.markdown("### 📝 Encounter Summary")
         st.markdown(summary)
         st.download_button("Download Summary (.md)", summary, file_name="summary.md")
-
         st.session_state.case = None
