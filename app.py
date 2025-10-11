@@ -73,6 +73,7 @@ def transcribe_audio(file_path):
 # ======== STREAMLIT UI ========
 st.set_page_config(page_title="Virtual ENT Patient", layout="centered")
 
+# ======== HEADER ========
 col1, col2 = st.columns([1, 5])
 with col1:
     st.image("logo.jpg", width=110)
@@ -137,14 +138,43 @@ Case details:
         st.session_state.history.append({"role": "assistant", "content": patient_response, "audio": audio_path})
         st.session_state.started = True
 
-    # ======== Chat UI ========
+    # ======== CHAT UI (Smart layout) ========
     st.markdown(
         """
         <style>
-        .chat-container { height: 500px; overflow-y: auto; display: flex; flex-direction: column; }
-        .chat-bubble { border-radius: 15px; padding: 10px 15px; margin: 5px 0; max-width: 80%; word-wrap: break-word; }
-        .doctor { background-color: #D7EBFF; color: black; align-self: flex-start; }
-        .patient { background-color: #F1F1F1; color: black; align-self: flex-end; }
+        .chat-container {
+            height: 520px;
+            overflow-y: auto;
+            padding: 10px;
+            background-color: #FAFAFA;
+            border-radius: 15px;
+            border: 1px solid #DDD;
+        }
+        .chat-bubble {
+            border-radius: 18px;
+            padding: 12px 16px;
+            margin: 8px 0;
+            max-width: 75%;
+            word-wrap: break-word;
+            font-size: 15px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+            line-height: 1.4;
+        }
+        .doctor {
+            background-color: #D6EBFF;
+            color: #000;
+            align-self: flex-start;
+        }
+        .patient {
+            background-color: #F0F0F0;
+            color: #000;
+            align-self: flex-end;
+        }
+        .chat-role {
+            font-weight: bold;
+            display: block;
+            margin-bottom: 4px;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -153,9 +183,20 @@ Case details:
     chat_html = "<div class='chat-container'>"
     for msg in st.session_state.history:
         if msg["role"] == "user":
-            chat_html += f"<div class='chat-bubble doctor'>👨‍⚕️ <strong>Doctor:</strong> {msg['content']}</div>"
+            voice_tag = "🎤 Recorded<br>" if msg.get("recorded") else ""
+            chat_html += f"""
+            <div class='chat-bubble doctor'>
+                <span class='chat-role'>👨‍⚕️ Doctor:</span>
+                {voice_tag}{msg['content']}
+            </div>
+            """
         else:
-            chat_html += f"<div class='chat-bubble patient'>🧑 <strong>Patient:</strong> {msg['content']}</div>"
+            chat_html += f"""
+            <div class='chat-bubble patient'>
+                <span class='chat-role'>🧑 Patient:</span>
+                {msg['content']}
+            </div>
+            """
             if "audio" in msg:
                 st.audio(msg["audio"], format="audio/mp3")
     chat_html += "<div id='bottom'></div></div>"
@@ -166,15 +207,33 @@ Case details:
     if prompt := st.chat_input("Ask your patient..."):
         st.session_state.history.append({"role": "user", "content": prompt})
         system_prompt = f"""
-You are simulating the patient described in the following clinical case.
-- Speak in first person only.
-- Do not give all details at once.
-- Do not use information outside this case.
-- Match tone to the scenario.
+You are role-playing as a human patient in a clinical encounter. 
+Strictly follow these rules:
 
-Case details:
+1. Act and speak as a real patient would. 
+   - Use **first person language only** (e.g., “I have pain in my right ear” not “The patient has pain…”).
+   - Do not use medical jargon or structured summaries.
+   - Respond naturally and conversationally.
+
+2. Only disclose information if asked directly or if it’s natural for a patient to volunteer it at that point. 
+   - Do not give all details at once.
+   - If the doctor’s question is vague or partial, give a **limited but natural** patient-like answer.
+   - For example, if asked “Tell me more,” give a brief but realistic description, not the entire HPI.
+
+3. Do **not** learn from or reference any previous conversations or outside knowledge. 
+   Use **only the information contained in this case file** below.
+   If the doctor asks something unrelated to the case, politely say you don't know or don't remember.
+
+4. Adjust your tone and style to match the scenario:
+   - Reflect the patient’s level of pain, discomfort, or anxiety.
+   - Speak with emotion or hesitation where appropriate (e.g., “It really hurts when I touch it.”).
+
+5. Stay in character at all times as the patient.
+
+Background case details:
 {json.dumps(case, indent=2)}
 """
+
         reply = call_llm(system_prompt, st.session_state.history)
         audio_path = tts_response(reply)
         st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
@@ -188,15 +247,17 @@ Case details:
         temp_file.write(audio_file.getvalue())
         temp_file.flush()
         transcription = transcribe_audio(temp_file.name)
-        st.session_state.history.append({"role": "user", "content": transcription})
-        system_prompt = f"""
-You are simulating the patient described in the following clinical case.
-- Speak in first person only.
-- Do not give all details at once.
-- Do not use information outside this case.
-- Match tone to the scenario.
+        st.session_state.history.append({"role": "user", "content": transcription, "recorded": True})
 
-Case details:
+        system_prompt = f"""
+You are role-playing as a human patient in a clinical encounter. 
+- Speak in first person.
+- Do not give all details at once.
+- Use only the information from this case.
+- Reflect the tone and level of pain in the scenario.
+If asked something unrelated, say you don't know.
+
+Background case details:
 {json.dumps(case, indent=2)}
 """
         reply = call_llm(system_prompt, st.session_state.history)
