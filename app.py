@@ -138,7 +138,7 @@ Case details:
         st.session_state.history.append({"role": "assistant", "content": patient_response, "audio": audio_path})
         st.session_state.started = True
 
-    # ======== CHAT UI (Smart layout) ========
+    # ======== CHAT UI (Left-Right Layout) ========
     st.markdown(
         """
         <style>
@@ -149,6 +149,8 @@ Case details:
             background-color: #FAFAFA;
             border-radius: 15px;
             border: 1px solid #DDD;
+            display: flex;
+            flex-direction: column;
         }
         .chat-bubble {
             border-radius: 18px;
@@ -164,11 +166,13 @@ Case details:
             background-color: #D6EBFF;
             color: #000;
             align-self: flex-start;
+            text-align: left;
         }
         .patient {
             background-color: #F0F0F0;
             color: #000;
             align-self: flex-end;
+            text-align: left;
         }
         .chat-role {
             font-weight: bold;
@@ -181,8 +185,10 @@ Case details:
     )
 
     chat_html = "<div class='chat-container'>"
-    for msg in st.session_state.history:
+
+    for idx, msg in enumerate(st.session_state.history):
         if msg["role"] == "user":
+            # Doctor bubble (left)
             voice_tag = "🎤 Recorded<br>" if msg.get("recorded") else ""
             chat_html += f"""
             <div class='chat-bubble doctor'>
@@ -191,6 +197,7 @@ Case details:
             </div>
             """
         else:
+            # Patient bubble (right)
             chat_html += f"""
             <div class='chat-bubble patient'>
                 <span class='chat-role'>🧑 Patient:</span>
@@ -198,7 +205,10 @@ Case details:
             </div>
             """
             if "audio" in msg:
+                st.markdown("<div style='text-align: right; margin-top: -8px;'>", unsafe_allow_html=True)
                 st.audio(msg["audio"], format="audio/mp3")
+                st.markdown("</div>", unsafe_allow_html=True)
+
     chat_html += "<div id='bottom'></div></div>"
     chat_html += "<script>var chat=document.querySelector('.chat-container');chat.scrollTop=chat.scrollHeight;</script>"
     st.markdown(chat_html, unsafe_allow_html=True)
@@ -206,6 +216,34 @@ Case details:
     # ======== TEXT INPUT ========
     if prompt := st.chat_input("Ask your patient..."):
         st.session_state.history.append({"role": "user", "content": prompt})
+        system_prompt = f"""
+You are role-playing as a human patient in a clinical encounter. 
+Strictly follow these rules:
+
+1. Speak in first person.
+2. Only share details if asked directly.
+3. Do not give all details at once.
+4. Use only the information from this case.
+5. Reflect the scenario tone.
+
+Background case details:
+{json.dumps(case, indent=2)}
+"""
+        reply = call_llm(system_prompt, st.session_state.history)
+        audio_path = tts_response(reply)
+        st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
+        st.rerun()
+
+    # ======== VOICE INPUT ========
+    st.markdown("🎤 **Record your question:**")
+    audio_file = st.audio_input("Record voice")
+    if audio_file is not None:
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        temp_file.write(audio_file.getvalue())
+        temp_file.flush()
+        transcription = transcribe_audio(temp_file.name)
+        st.session_state.history.append({"role": "user", "content": transcription, "recorded": True})
+
         system_prompt = f"""
 You are role-playing as a human patient in a clinical encounter. 
 Strictly follow these rules:
@@ -234,32 +272,6 @@ Background case details:
 {json.dumps(case, indent=2)}
 """
 
-        reply = call_llm(system_prompt, st.session_state.history)
-        audio_path = tts_response(reply)
-        st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
-        st.rerun()
-
-    # ======== VOICE INPUT ========
-    st.markdown("🎤 **Record your question:**")
-    audio_file = st.audio_input("Record voice")
-    if audio_file is not None:
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-        temp_file.write(audio_file.getvalue())
-        temp_file.flush()
-        transcription = transcribe_audio(temp_file.name)
-        st.session_state.history.append({"role": "user", "content": transcription, "recorded": True})
-
-        system_prompt = f"""
-You are role-playing as a human patient in a clinical encounter. 
-- Speak in first person.
-- Do not give all details at once.
-- Use only the information from this case.
-- Reflect the tone and level of pain in the scenario.
-If asked something unrelated, say you don't know.
-
-Background case details:
-{json.dumps(case, indent=2)}
-"""
         reply = call_llm(system_prompt, st.session_state.history)
         audio_path = tts_response(reply)
         st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
