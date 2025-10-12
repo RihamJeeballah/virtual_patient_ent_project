@@ -235,7 +235,7 @@ else:
 
     mic_clicked = st.button("🎤", key="mic_btn", help="Hold to record")
 
-    msg = st.experimental_get_query_params().get("FROM_MIC")
+    msg = st.query_params.get("FROM_MIC")
     if msg:
         audio_data = base64.b64decode(msg[0])
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".webm")
