@@ -1,5 +1,6 @@
 import streamlit as st
-import os, re, json, tempfile, base64, html
+import streamlit.components.v1 as components
+import base64, tempfile, html, json, os, re
 from datetime import datetime
 from pathlib import Path
 from typing import Dict
@@ -10,7 +11,6 @@ from gtts import gTTS
 # ====== SETUP ======
 load_dotenv()
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-
 CASES_DIR = Path("cases")
 LOGS_DIR = Path("conversations")
 LOGS_DIR.mkdir(exist_ok=True)
@@ -38,13 +38,6 @@ def tts_response(text):
     tts.save(temp_file.name)
     return temp_file.name
 
-def transcribe_audio(file_path):
-    with open(file_path, "rb") as audio_file:
-        transcript = client.audio.transcriptions.create(
-            model="whisper-1", file=audio_file
-        )
-    return transcript.text
-
 def call_llm(prompt: str, history: list):
     clean_history = [{"role": h["role"], "content": h["content"]} for h in history]
     messages = [{"role": "system", "content": prompt}] + clean_history
@@ -57,6 +50,14 @@ def add_message(role, content, **kwargs):
     msg_id = f"{role}-{hash(content)}"
     if not any(m.get("id") == msg_id for m in st.session_state.history):
         st.session_state.history.append({"role": role, "content": content, "id": msg_id, **kwargs})
+
+def transcribe_audio_file(temp_path):
+    with open(temp_path, "rb") as audio_file:
+        transcript = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=audio_file
+        )
+    return transcript.text
 
 # ====== PAGE CONFIG ======
 st.set_page_config(page_title="Virtual ENT Patient", layout="centered")
@@ -81,7 +82,6 @@ st.title("🩺 Virtual ENT Patient")
 if "case" not in st.session_state: st.session_state.case = None
 if "history" not in st.session_state: st.session_state.history = []
 if "started" not in st.session_state: st.session_state.started = False
-if "recording" not in st.session_state: st.session_state.recording = False
 
 # ====== CASE SELECTION ======
 if not st.session_state.case:
@@ -129,15 +129,18 @@ else:
             box-shadow: 0px 4px 10px rgba(0,0,0,0.2);
             z-index: 1000; transition: all 0.3s ease-in-out;
         }
-        .mic-button.recording {
-            background-color: #d61d1d;
-            animation: pulse 1.3s infinite;
-        }
+        .mic-button.recording { background-color: #d61d1d; animation: pulse 1.3s infinite; }
         @keyframes pulse {
             0% { box-shadow: 0 0 0 0 rgba(214,29,29, 0.6); }
             70% { box-shadow: 0 0 0 15px rgba(214,29,29, 0); }
             100% { box-shadow: 0 0 0 0 rgba(214,29,29, 0); }
         }
+        #recordBubble {
+            display:none;position:fixed;bottom:95px;right:30px;
+            background:#333;color:white;padding:8px 14px;border-radius:20px;
+            box-shadow:0 2px 8px rgba(0,0,0,0.2);font-family:sans-serif;font-size:14px;
+        }
+        #recordDot {color:red;font-size:20px;vertical-align:middle;}
         </style>
     """, unsafe_allow_html=True)
 
@@ -174,32 +177,77 @@ else:
         add_message("assistant", reply, audio=audio_path)
         st.rerun()
 
-    # ====== FLOATING MIC BUTTON WITH PULSE ======
-    mic_clicked = st.button("🎤", key="mic_btn",
-                            help="Hold to record",
-                            use_container_width=False)
+    # ====== JS for Push-to-Talk with Timer Bubble ======
+    components.html(
+        """
+        <div id="recordBubble">
+            <span id="recordDot">●</span>
+            <span id="recordTime">00:00</span>
+        </div>
+        <script>
+        let mediaRecorder, audioChunks = [], timerInterval, seconds = 0;
+        function startTimer(){
+          seconds = 0;
+          document.getElementById('recordBubble').style.display='block';
+          timerInterval = setInterval(()=>{
+            seconds++;
+            let m = String(Math.floor(seconds/60)).padStart(2,'0');
+            let s = String(seconds%60).padStart(2,'0');
+            document.getElementById('recordTime').innerText = `${m}:${s}`;
+          },1000);
+        }
+        function stopTimer(){
+          clearInterval(timerInterval);
+          document.getElementById('recordBubble').style.display='none';
+        }
+        window.onload = () => {
+          const mic = window.parent.document.querySelector('button[kind=primary]');
+          mic.onmousedown = startRecording;
+          mic.onmouseup = stopRecording;
+          mic.ontouchstart = startRecording;
+          mic.ontouchend = stopRecording;
+        };
+        async function startRecording(){
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          mediaRecorder = new MediaRecorder(stream);
+          audioChunks = [];
+          mediaRecorder.start();
+          mediaRecorder.addEventListener("dataavailable", e => audioChunks.push(e.data));
+          startTimer();
+        }
+        function stopRecording(){
+          mediaRecorder.stop();
+          stopTimer();
+          mediaRecorder.addEventListener("stop", () => {
+            const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+            const reader = new FileReader();
+            reader.readAsDataURL(audioBlob);
+            reader.onloadend = () => {
+              const base64String = reader.result.split(',')[1];
+              window.parent.postMessage({ isStreamlitMessage: true, type: 'FROM_MIC', data: base64String }, '*');
+            };
+          });
+        }
+        </script>
+        """,
+        height=0
+    )
 
-    if mic_clicked:
-        st.session_state.recording = True
-        st.toast("🎙️ Recording...")
-        audio_file = st.audio_input("hidden_recorder", label_visibility="collapsed")
-        if audio_file is not None:
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-            temp_file.write(audio_file.getvalue())
-            temp_file.flush()
-            transcription = transcribe_audio(temp_file.name)
-            add_message("user", transcription, recorded=True)
-            reply = call_llm(f"You are the patient in this case:\n{json.dumps(case)}", st.session_state.history)
-            audio_path = tts_response(reply)
-            add_message("assistant", reply, audio=audio_path)
-            st.session_state.recording = False
-            st.rerun()
+    mic_clicked = st.button("🎤", key="mic_btn", help="Hold to record")
 
-    # CSS class change for mic button
-    if st.session_state.recording:
-        st.markdown('<script>document.querySelector("button[kind=primary]").classList.add("mic-button","recording");</script>', unsafe_allow_html=True)
-    else:
-        st.markdown('<script>document.querySelector("button[kind=primary]").classList.add("mic-button");</script>', unsafe_allow_html=True)
+    msg = st.experimental_get_query_params().get("FROM_MIC")
+    if msg:
+        audio_data = base64.b64decode(msg[0])
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".webm")
+        temp_file.write(audio_data)
+        temp_file.flush()
+
+        transcription = transcribe_audio_file(temp_file.name)
+        add_message("user", transcription, recorded=True)
+        reply = call_llm(f"You are the patient in this case:\n{json.dumps(case)}", st.session_state.history)
+        audio_path = tts_response(reply)
+        add_message("assistant", reply, audio=audio_path)
+        st.rerun()
 
     # ====== END ENCOUNTER ======
     if st.button("End Encounter"):
