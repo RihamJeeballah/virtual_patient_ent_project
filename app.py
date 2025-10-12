@@ -7,7 +7,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from gtts import gTTS
 
-# ======== SETUP ========
+# ====== SETUP ======
 load_dotenv()
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
@@ -16,7 +16,7 @@ LOGS_DIR = Path("conversations")
 LOGS_DIR.mkdir(exist_ok=True)
 MODEL = "gpt-4o-mini"
 
-# ======== HELPERS ========
+# ====== HELPERS ======
 def load_case(file_path: Path) -> Dict[str, str]:
     text = file_path.read_text(encoding="utf-8")
     sections = re.split(r"^## ", text, flags=re.M)
@@ -58,10 +58,10 @@ def add_message(role, content, **kwargs):
     if not any(m.get("id") == msg_id for m in st.session_state.history):
         st.session_state.history.append({"role": role, "content": content, "id": msg_id, **kwargs})
 
-# ======== PAGE CONFIG ========
+# ====== PAGE CONFIG ======
 st.set_page_config(page_title="Virtual ENT Patient", layout="centered")
 
-# ======== HEADER ========
+# ====== HEADER ======
 col1, col2 = st.columns([1, 5])
 with col1:
     st.image("logo.jpg", width=110)
@@ -75,15 +75,15 @@ with col2:
     """, unsafe_allow_html=True)
 
 st.markdown("---")
-st.title("🩺 Virtual ENT Patient (Voice + Text)")
+st.title("🩺 Virtual ENT Patient")
 
-# ======== STATE ========
+# ====== STATE ======
 if "case" not in st.session_state: st.session_state.case = None
 if "history" not in st.session_state: st.session_state.history = []
 if "started" not in st.session_state: st.session_state.started = False
-if "recording_preview" not in st.session_state: st.session_state.recording_preview = ""
+if "recording" not in st.session_state: st.session_state.recording = False
 
-# ======== CASE SELECTION ========
+# ====== CASE SELECTION ======
 if not st.session_state.case:
     st.header("Select a clinical case:")
     cases = [f for f in CASES_DIR.glob("*.md")]
@@ -102,7 +102,7 @@ else:
     st.subheader(case["title"])
     st.markdown(f"**Opening Stem:** {case.get('Opening Stem','')}")
 
-    # ======== First greeting ========
+    # ====== First greeting ======
     if not st.session_state.started:
         greeting = "Hello, I'm your doctor today. What brings you in?"
         add_message("user", greeting)
@@ -112,7 +112,7 @@ else:
         add_message("assistant", reply, audio=audio_path)
         st.session_state.started = True
 
-    # ======== CHAT UI ========
+    # ====== CHAT UI ======
     st.markdown("""
         <style>
         .chat-container {height: 520px; overflow-y: auto; padding: 10px; background: #ECE5DD; border-radius: 15px;}
@@ -127,9 +127,17 @@ else:
             font-size: 26px; padding: 18px;
             border-radius: 50%; cursor: pointer;
             box-shadow: 0px 4px 10px rgba(0,0,0,0.2);
-            z-index: 1000;
+            z-index: 1000; transition: all 0.3s ease-in-out;
         }
-        .mic-button:hover { background-color: #1DA955; }
+        .mic-button.recording {
+            background-color: #d61d1d;
+            animation: pulse 1.3s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(214,29,29, 0.6); }
+            70% { box-shadow: 0 0 0 15px rgba(214,29,29, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(214,29,29, 0); }
+        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -158,7 +166,7 @@ else:
     chat_html += "<script>var chat=document.querySelector('.chat-container');chat.scrollTop=chat.scrollHeight;</script>"
     st.markdown(chat_html, unsafe_allow_html=True)
 
-    # ======== Text Input ========
+    # ====== TEXT INPUT ======
     if prompt := st.chat_input("Type your question..."):
         add_message("user", prompt)
         reply = call_llm(f"You are the patient in this case:\n{json.dumps(case)}", st.session_state.history)
@@ -166,29 +174,34 @@ else:
         add_message("assistant", reply, audio=audio_path)
         st.rerun()
 
-    # ======== Floating Mic Button ========
-    mic_clicked = st.button("🎤", key="mic_button", help="Hold to record", use_container_width=False)
+    # ====== FLOATING MIC BUTTON WITH PULSE ======
+    mic_clicked = st.button("🎤", key="mic_btn",
+                            help="Hold to record",
+                            use_container_width=False)
 
     if mic_clicked:
-        st.session_state.recording_preview = "🎙️ Recording... Release to send."
+        st.session_state.recording = True
         st.toast("🎙️ Recording...")
-
-    # ======== Hidden audio recorder ========
-    if mic_clicked:
-        audio_file = st.audio_input("hidden_audio", label_visibility="collapsed")
+        audio_file = st.audio_input("hidden_recorder", label_visibility="collapsed")
         if audio_file is not None:
             temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
             temp_file.write(audio_file.getvalue())
             temp_file.flush()
             transcription = transcribe_audio(temp_file.name)
-            st.session_state.recording_preview = ""
             add_message("user", transcription, recorded=True)
             reply = call_llm(f"You are the patient in this case:\n{json.dumps(case)}", st.session_state.history)
             audio_path = tts_response(reply)
             add_message("assistant", reply, audio=audio_path)
+            st.session_state.recording = False
             st.rerun()
 
-    # ======== END ENCOUNTER ========
+    # CSS class change for mic button
+    if st.session_state.recording:
+        st.markdown('<script>document.querySelector("button[kind=primary]").classList.add("mic-button","recording");</script>', unsafe_allow_html=True)
+    else:
+        st.markdown('<script>document.querySelector("button[kind=primary]").classList.add("mic-button");</script>', unsafe_allow_html=True)
+
+    # ====== END ENCOUNTER ======
     if st.button("End Encounter"):
         summary = "\n".join([f"{h['role']}: {h['content']}" for h in st.session_state.history])
         log_name = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{st.session_state.case_name}.json"
