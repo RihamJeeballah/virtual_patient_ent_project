@@ -4,6 +4,7 @@ import re
 import json
 import tempfile
 import base64
+import html
 from datetime import datetime
 from pathlib import Path
 from typing import Dict
@@ -37,9 +38,12 @@ def load_case(file_path: Path) -> Dict[str, str]:
 def list_cases():
     return [f for f in CASES_DIR.glob("*.md")]
 
+def escape_html(text: str) -> str:
+    """Escape HTML and preserve line breaks for rendering in chat bubbles."""
+    return html.escape(text).replace("\n", "<br>")
+
 def call_llm(prompt: str, history: list):
     try:
-        # Strip audio and UI fields before sending to LLM
         clean_history = [{"role": h["role"], "content": h["content"]} for h in history]
         messages = [{"role": "system", "content": prompt}] + clean_history
         completion = client.chat.completions.create(
@@ -126,33 +130,13 @@ else:
         st.session_state.history.append({"role": "user", "content": greeting})
 
         patient_prompt = f"""
-You are role-playing as a human patient in a clinical encounter. 
-Strictly follow these rules:
+You are the patient in this ENT clinical case.
+Respond naturally, using first-person language, without giving away all details at once.
+Tone: match the scenario's tone.
 
-1. Act and speak as a real patient would. 
-   - Use **first person language only** (e.g., “I have pain in my right ear” not “The patient has pain…”).
-   - Do not use medical jargon or structured summaries.
-   - Respond naturally and conversationally.
-
-2. Only disclose information if asked directly or if it’s natural for a patient to volunteer it at that point. 
-   - Do not give all details at once.
-   - If the doctor’s question is vague or partial, give a **limited but natural** patient-like answer.
-   - For example, if asked “Tell me more,” give a brief but realistic description, not the entire HPI.
-
-3. Do **not** learn from or reference any previous conversations or outside knowledge. 
-   Use **only the information contained in this case file** below.
-   If the doctor asks something unrelated to the case, politely say you don't know or don't remember.
-
-4. Adjust your tone and style to match the scenario:
-   - Reflect the patient’s level of pain, discomfort, or anxiety.
-   - Speak with emotion or hesitation where appropriate (e.g., “It really hurts when I touch it.”).
-
-5. Stay in character at all times as the patient.
-
-Background case details:
+Case details:
 {json.dumps(case, indent=2)}
 """
-
         patient_response = call_llm(patient_prompt, [{"role": "user", "content": greeting}])
         audio_path = tts_response(patient_response)
         st.session_state.history.append({"role": "assistant", "content": patient_response, "audio": audio_path})
@@ -181,6 +165,7 @@ Background case details:
             font-size: 15px;
             box-shadow: 0 2px 6px rgba(0,0,0,0.05);
             line-height: 1.4;
+            white-space: pre-wrap;
         }
         .doctor {
             background-color: #D6EBFF;
@@ -216,14 +201,14 @@ Background case details:
             chat_html += f"""
             <div class='chat-bubble doctor'>
                 <span class='chat-role'>👨‍⚕️ Doctor:</span>
-                {icon}{msg['content']}
+                {icon}{escape_html(msg['content'])}
             </div>
             """
         else:
             chat_html += f"""
             <div class='chat-bubble patient'>
                 <span class='chat-role'>🧑 Patient:</span>
-                {msg['content']}
+                {escape_html(msg['content'])}
             """
             if "audio" in msg:
                 with open(msg["audio"], "rb") as f:
