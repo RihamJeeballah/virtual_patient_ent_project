@@ -33,14 +33,6 @@ def load_case(file_path: Path) -> Dict[str, str]:
 def escape_html(text: str) -> str:
     return html.escape(text).replace("\n", "<br>")
 
-def call_llm(prompt: str, history: list):
-    clean_history = [{"role": h["role"], "content": h["content"]} for h in history]
-    messages = [{"role": "system", "content": prompt}] + clean_history
-    completion = client.chat.completions.create(
-        model=MODEL, messages=messages, temperature=0.8, max_tokens=300
-    )
-    return completion.choices[0].message.content
-
 def tts_response(text):
     tts = gTTS(text=text, lang="en")
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
@@ -53,6 +45,21 @@ def transcribe_audio(file_path):
             model="whisper-1", file=audio_file
         )
     return transcript.text
+
+def call_llm(prompt: str, history: list):
+    clean_history = [{"role": h["role"], "content": h["content"]} for h in history]
+    messages = [{"role": "system", "content": prompt}] + clean_history
+    completion = client.chat.completions.create(
+        model=MODEL, messages=messages, temperature=0.8, max_tokens=300
+    )
+    return completion.choices[0].message.content
+
+def add_message(role, content, **kwargs):
+    message_id = f"{role}-{hash(content)}"
+    if not any(m.get("id") == message_id for m in st.session_state.history):
+        st.session_state.history.append(
+            {"role": role, "content": content, "id": message_id, **kwargs}
+        )
 
 # ======== UI ========
 st.set_page_config(page_title="Virtual ENT Patient", layout="centered")
@@ -71,7 +78,7 @@ with col2:
 st.markdown("---")
 st.title("🩺 Virtual ENT Patient")
 
-# Session State
+# Session state
 if "case" not in st.session_state: st.session_state.case = None
 if "history" not in st.session_state: st.session_state.history = []
 if "started" not in st.session_state: st.session_state.started = False
@@ -99,18 +106,14 @@ else:
     # First greeting
     if not st.session_state.started:
         greeting = "Hello, I'm your doctor today. What brings you in?"
-        st.session_state.history.append(
-            {"role": "user", "content": greeting, "id": time.time()}
-        )
+        add_message("user", greeting)
         reply = call_llm(f"You are the patient in this case:\n{json.dumps(case)}",
                          [{"role": "user", "content": greeting}])
         audio_path = tts_response(reply)
-        st.session_state.history.append(
-            {"role": "assistant", "content": reply, "audio": audio_path, "id": time.time()}
-        )
+        add_message("assistant", reply, audio=audio_path)
         st.session_state.started = True
 
-    # ======== Chat UI (WhatsApp style) ========
+    # ======== CHAT UI (WhatsApp style) ========
     st.markdown("""
         <style>
         .chat-container {height: 520px; overflow-y: auto; padding: 10px; background: #ECE5DD; border-radius: 15px;}
@@ -123,7 +126,7 @@ else:
     """, unsafe_allow_html=True)
 
     chat_html = "<div class='chat-container' style='display:flex;flex-direction:column;'>"
-    for msg in sorted(st.session_state.history, key=lambda x: x["id"]):
+    for msg in st.session_state.history:
         if msg["role"] == "user":
             icon = "🎧 " if msg.get("recorded") else ""
             chat_html += f"""
@@ -149,33 +152,42 @@ else:
 
     # ======== Doctor Text Input ========
     if prompt := st.chat_input("Type your question or instruction..."):
-        st.session_state.history.append({"role": "user", "content": prompt, "id": time.time()})
+        add_message("user", prompt)
         reply = call_llm(f"You are the patient in this case:\n{json.dumps(case)}", st.session_state.history)
         audio_path = tts_response(reply)
-        st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path, "id": time.time()})
+        add_message("assistant", reply, audio=audio_path)
         st.rerun()
 
-    # ======== Doctor Voice Recording ========
-    st.markdown("🎤 **Hold to record (preview will show transcript)**")
-    audio_file = st.audio_input("Record voice")
-    preview_placeholder = st.empty()
+    # ======== Doctor Voice (Push-to-Talk) ========
+    col_btn1, col_btn2 = st.columns([1, 5])
+    with col_btn1:
+        if st.button("🎤 Hold to record", use_container_width=True):
+            st.session_state.recording_preview = "Recording..."
+    with col_btn2:
+        if st.session_state.recording_preview:
+            st.info(f"📝 {st.session_state.recording_preview}")
 
+    audio_file = st.audio_input("Record voice")
     if audio_file is not None:
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
         temp_file.write(audio_file.getvalue())
         temp_file.flush()
         transcription = transcribe_audio(temp_file.name)
         st.session_state.recording_preview = transcription
-        with preview_placeholder.container():
-            st.info(f"📝 Transcription preview: {transcription}")
-
-        st.session_state.history.append(
-            {"role": "user", "content": transcription, "recorded": True, "id": time.time()}
-        )
+        add_message("user", transcription, recorded=True)
         reply = call_llm(f"You are the patient in this case:\n{json.dumps(case)}", st.session_state.history)
         audio_path = tts_response(reply)
-        st.session_state.history.append(
-            {"role": "assistant", "content": reply, "audio": audio_path, "id": time.time()}
-        )
+        add_message("assistant", reply, audio=audio_path)
         st.session_state.recording_preview = ""
         st.rerun()
+
+    # ======== End Encounter ========
+    if st.button("End Encounter"):
+        summary = "\n".join([f"{h['role']}: {h['content']}" for h in st.session_state.history])
+        log_name = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{st.session_state.case_name}.json"
+        with open(LOGS_DIR / log_name, "w", encoding="utf-8") as f:
+            json.dump(st.session_state.history, f, indent=2)
+        st.markdown("### 📝 Encounter Summary")
+        st.markdown(summary)
+        st.download_button("Download Summary (.md)", summary, file_name="summary.md")
+        st.session_state.case = None
