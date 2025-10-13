@@ -36,18 +36,17 @@ def load_case(file_path: Path) -> Dict[str, str]:
         case[header] = body
     return case
 
-def call_llm_as_patient(case: Dict, history: List[Dict[str, str]]) -> str:
-    """Call LLM to simulate patient response with strong patient instructions"""
+
+def call_llm_as_patient(case: Dict, history: List[Dict[str, str]]) -> Dict[str, str]:
+    """Call LLM and return patient text + emotion tag"""
     system = {
         "role": "system",
         "content": (
             "You are role-playing a human patient in a clinical interview. "
             "The user is the doctor. Always respond as the patient. "
-            "Never say 'I am a simulator'. "
-            "Base your answers ONLY on the case information. "
-            "Reveal details naturally and gradually. "
-            "If the doctor's message is general like 'what brings you here', "
-            "respond with your chief complaint.\n\n"
+            "Also analyze the emotional tone of your response (e.g., pain, anxious, worried, tired, sad, neutral). "
+            "Return ONLY valid JSON like this:\n"
+            "{ \"reply\": \"It really hurts when I breathe.\", \"emotion\": \"pain\" }\n\n"
             f"CASE:\n{json.dumps(case)}"
         )
     }
@@ -61,20 +60,34 @@ def call_llm_as_patient(case: Dict, history: List[Dict[str, str]]) -> str:
             temperature=0.8,
             max_tokens=300
         )
-        reply = resp.choices[0].message.content.strip()
-        if not reply:
-            reply = "…(The patient seems unsure and stays silent.)"
-        return reply
+        raw = resp.choices[0].message.content.strip()
+        data = json.loads(raw)
+        if "reply" not in data:
+            data = {"reply": raw, "emotion": "neutral"}
+        return data
     except Exception as e:
-        st.error(f"❌ LLM request failed: {e}")
-        return "…(The patient is silent.)"
+        st.error(f"❌ LLM error: {e}")
+        return {"reply": "…(The patient stays silent.)", "emotion": "neutral"}
 
-def tts_mp3(text: str) -> str:
-    """Convert text to speech and save as mp3"""
-    tts = gTTS(text=text, lang="en")
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-    tts.save(tmp.name)
-    return tmp.name
+
+def tts_with_emotion(text: str, emotion: str) -> str:
+    """Convert text to speech with emotion using OpenAI TTS, fallback to gTTS"""
+    try:
+        speech = client.audio.speech.create(
+            model="gpt-4o-mini-tts",
+            voice="alloy",
+            input=f"[tone:{emotion}] {text}"
+        )
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+        speech.stream_to_file(tmp.name)
+        return tmp.name
+    except Exception as e:
+        st.warning(f"⚠️ Emotional TTS failed, using fallback: {e}")
+        tts = gTTS(text=text, lang="en")
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+        tts.save(tmp.name)
+        return tmp.name
+
 
 def speech_to_text(audio_file) -> str:
     """Transcribe recorded audio using Whisper with error handling"""
@@ -89,8 +102,10 @@ def speech_to_text(audio_file) -> str:
         st.error(f"⚠️ Transcription failed: {e}")
         return ""
 
+
 def esc(x: str) -> str:
     return html.escape(x).replace("\n", "<br>")
+
 
 # ------------------ STATE ------------------
 if "case" not in st.session_state: st.session_state.case = None
@@ -111,7 +126,7 @@ with col2:
         </div>
     """, unsafe_allow_html=True)
 
-st.title("💬 Virtual Patient (Text & Voice)")
+st.title("💬 Virtual Patient with Emotional Voice")
 
 # ------------------ CASE SELECTION ------------------
 if not st.session_state.case:
@@ -154,7 +169,7 @@ else:
             if "audio" in m:
                 with open(m["audio"], "rb") as f:
                     b64 = base64.b64encode(f.read()).decode()
-                chat_html += f"<audio controls><source src='data:audio/mp3;base64,{b64}' type='audio/mp3'></audio>"
+                chat_html += f"<audio controls autoplay><source src='data:audio/mp3;base64,{b64}' type='audio/mp3'></audio>"
             chat_html += "</div>"
     chat_html += "<div id='bottom'></div></div>"
     chat_html += "<script>var c=document.querySelector('.chat'); c.scrollTop=c.scrollHeight;</script>"
@@ -174,9 +189,10 @@ else:
             if user_input.strip():
                 st.session_state.history.append({"role": "user", "content": user_input.strip()})
                 st.session_state.started = True
-                reply = call_llm_as_patient(case, st.session_state.history)
+                data = call_llm_as_patient(case, st.session_state.history)
+                reply, emotion = data["reply"], data.get("emotion", "neutral")
                 if reply.strip():
-                    audio_path = tts_mp3(reply)
+                    audio_path = tts_with_emotion(reply, emotion)
                     st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
                 st.rerun()
 
@@ -189,18 +205,18 @@ else:
                 f.flush()
                 text_transcribed = speech_to_text(f.name)
 
-            st.write("📝 Transcribed text:", f"“{text_transcribed}”")  # Debugging
-
             clean_text = text_transcribed.strip()
+            st.write("📝 Transcribed text:", f"“{clean_text}”")
+
             if not clean_text or len(clean_text) < 2:
                 st.warning("⚠️ Voice message was too short or unclear. Please try again.")
             else:
-                # Add voice message to chat, but NOT to model context
                 st.session_state.history.append({"role": "user", "content": clean_text, "ui_suffix": " (🎤 Voice)"})
                 st.session_state.started = True
-                reply = call_llm_as_patient(case, st.session_state.history)
+                data = call_llm_as_patient(case, st.session_state.history)
+                reply, emotion = data["reply"], data.get("emotion", "neutral")
                 if reply.strip():
-                    audio_path = tts_mp3(reply)
+                    audio_path = tts_with_emotion(reply, emotion)
                     st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
                 else:
                     st.warning("🤖 The virtual patient didn’t respond. Try again.")
