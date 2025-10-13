@@ -37,7 +37,7 @@ def load_case(file_path: Path) -> Dict[str, str]:
     return case
 
 def call_llm_as_patient(case: Dict, history: List[Dict[str, str]]) -> str:
-    """Call LLM to simulate patient response"""
+    """Call LLM to simulate patient response with error handling"""
     system = {
         "role": "system",
         "content": (
@@ -49,13 +49,17 @@ def call_llm_as_patient(case: Dict, history: List[Dict[str, str]]) -> str:
         )
     }
     msgs = [system] + history
-    resp = client.chat.completions.create(
-        model=MODEL,
-        messages=msgs,
-        temperature=0.8,
-        max_tokens=300
-    )
-    return resp.choices[0].message.content
+    try:
+        resp = client.chat.completions.create(
+            model=MODEL,
+            messages=msgs,
+            temperature=0.8,
+            max_tokens=300
+        )
+        return resp.choices[0].message.content
+    except Exception as e:
+        st.error(f"❌ LLM request failed: {e}")
+        return ""
 
 def tts_mp3(text: str) -> str:
     """Convert text to speech and save as mp3"""
@@ -99,6 +103,7 @@ with col2:
         </div>
     """, unsafe_allow_html=True)
 
+st.title("💬 Virtual Patient (Text & Voice)")
 
 # ------------------ CASE SELECTION ------------------
 if not st.session_state.case:
@@ -161,8 +166,9 @@ else:
                 st.session_state.history.append({"role": "user", "content": user_input.strip()})
                 st.session_state.started = True
                 reply = call_llm_as_patient(case, st.session_state.history)
-                audio_path = tts_mp3(reply)
-                st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
+                if reply.strip():
+                    audio_path = tts_mp3(reply)
+                    st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
                 st.rerun()
 
     # Voice input with error handling
@@ -174,14 +180,17 @@ else:
                 f.flush()
                 text_transcribed = speech_to_text(f.name)
 
-            if not text_transcribed.strip():
-                st.warning("⚠️ Voice message could not be transcribed. Please try again.")
+            st.write("📝 Transcribed text:", text_transcribed)  # Debug line
+
+            if not text_transcribed or len(text_transcribed.strip()) < 2:
+                st.warning("⚠️ Voice message was too short or unclear. Please try again.")
             else:
-                st.session_state.history.append({"role": "user", "content": text_transcribed + " (🎤 Voice)"})
+                st.session_state.history.append({"role": "user", "content": text_transcribed.strip() + " (🎤 Voice)"})
                 st.session_state.started = True
                 reply = call_llm_as_patient(case, st.session_state.history)
-                audio_path = tts_mp3(reply)
-                st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
+                if reply.strip():
+                    audio_path = tts_mp3(reply)
+                    st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
                 st.rerun()
 
     # ------------------ END ENCOUNTER ------------------
