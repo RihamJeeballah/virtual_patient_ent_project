@@ -1,27 +1,34 @@
 import streamlit as st
 import streamlit.components.v1 as components
-import base64, tempfile, html, json, os, re
-from datetime import datetime
+import base64, tempfile, os, re, json, html
 from pathlib import Path
-from typing import Dict
-from openai import OpenAI
+from typing import Dict, List
+from datetime import datetime
 from dotenv import load_dotenv
+from openai import OpenAI
 from gtts import gTTS
 
-# ====== SETUP ======
+# ------------------ SETUP ------------------
 load_dotenv()
-client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+st.set_page_config(page_title="Virtual Patient Chat", layout="centered")
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+if not OPENAI_API_KEY:
+    st.error("❌ Missing OPENAI_API_KEY")
+    st.stop()
+
+client = OpenAI(api_key=OPENAI_API_KEY)
+MODEL = "gpt-4o-mini"
 CASES_DIR = Path("cases")
 LOGS_DIR = Path("conversations")
 LOGS_DIR.mkdir(exist_ok=True)
-MODEL = "gpt-4o-mini"
 
-# ====== HELPERS ======
+# ------------------ HELPERS ------------------
 def load_case(file_path: Path) -> Dict[str, str]:
+    """Load markdown case into structured dict"""
     text = file_path.read_text(encoding="utf-8")
     sections = re.split(r"^## ", text, flags=re.M)
-    case = {}
-    case["title"] = sections[0].strip("# \n")
+    case = {"title": sections[0].strip("# \n")}
     for sec in sections[1:]:
         parts = sec.split("\n", 1)
         header = parts[0].strip()
@@ -29,233 +36,150 @@ def load_case(file_path: Path) -> Dict[str, str]:
         case[header] = body
     return case
 
-def escape_html(text: str) -> str:
-    return html.escape(text).replace("\n", "<br>")
-
-def tts_response(text):
-    tts = gTTS(text=text, lang="en")
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-    tts.save(temp_file.name)
-    return temp_file.name
-
-def call_llm(prompt: str, history: list):
-    clean_history = [{"role": h["role"], "content": h["content"]} for h in history]
-    messages = [{"role": "system", "content": prompt}] + clean_history
-    completion = client.chat.completions.create(
-        model=MODEL, messages=messages, temperature=0.8, max_tokens=300
-    )
-    return completion.choices[0].message.content
-
-def add_message(role, content, **kwargs):
-    msg_id = f"{role}-{hash(content)}"
-    if not any(m.get("id") == msg_id for m in st.session_state.history):
-        st.session_state.history.append({"role": role, "content": content, "id": msg_id, **kwargs})
-
-def transcribe_audio_file(temp_path):
-    with open(temp_path, "rb") as audio_file:
-        transcript = client.audio.transcriptions.create(
-            model="whisper-1",
-            file=audio_file
+def call_llm_as_patient(case: Dict, history: List[Dict[str, str]]) -> str:
+    """Call LLM to simulate patient response"""
+    system = {
+        "role": "system",
+        "content": (
+            "You are role-playing a human patient. "
+            "Use ONLY the information in the case. "
+            "Speak in first person. Reveal details gradually. "
+            "Reflect tone/pain from scenario. Stay in character.\n\n"
+            f"CASE:\n{json.dumps(case)}"
         )
-    return transcript.text
+    }
+    msgs = [system] + history
+    resp = client.chat.completions.create(
+        model=MODEL,
+        messages=msgs,
+        temperature=0.8,
+        max_tokens=300
+    )
+    return resp.choices[0].message.content
 
-# ====== PAGE CONFIG ======
-st.set_page_config(page_title="Virtual ENT Patient", layout="centered")
+def tts_mp3(text: str) -> str:
+    """Convert text to speech and save as mp3"""
+    tts = gTTS(text=text, lang="en")
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+    tts.save(tmp.name)
+    return tmp.name
 
-# ====== HEADER ======
-col1, col2 = st.columns([1, 5])
-with col1:
-    st.image("logo.jpg", width=110)
-with col2:
-    st.markdown("""
-        <div style="text-align: left;">
-            <h1 style="margin-bottom: 0;">Sultan Qaboos University</h1>
-            <h2 style="margin-bottom: 0;">College of Medicine</h2>
-            <h3 style="color: gray; margin-top: 0;">Clinical Skills Lab</h3>
-        </div>
-    """, unsafe_allow_html=True)
+def speech_to_text(audio_file) -> str:
+    """Transcribe recorded audio using Whisper"""
+    with open(audio_file, "rb") as f:
+        transcription = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=f
+        )
+    return transcription.text.strip()
 
-st.markdown("---")
-st.title("🩺 Virtual ENT Patient")
+def esc(x: str) -> str:
+    return html.escape(x).replace("\n", "<br>")
 
-# ====== STATE ======
+# ------------------ STATE ------------------
 if "case" not in st.session_state: st.session_state.case = None
 if "history" not in st.session_state: st.session_state.history = []
 if "started" not in st.session_state: st.session_state.started = False
 
-# ====== CASE SELECTION ======
+# ------------------ HEADER ------------------
+col1, col2 = st.columns([1, 5])
+with col1:
+    if Path("logo.jpg").exists():
+        st.image("logo.jpg", width=110)
+with col2:
+    st.markdown("""
+        <div style="text-align:left">
+            <h1 style="margin:0">Sultan Qaboos University</h1>
+            <h2 style="margin:0">College of Medicine</h2>
+            <h3 style="color:gray;margin-top:0">Clinical Skills Lab</h3>
+        </div>
+    """, unsafe_allow_html=True)
+
+st.title("💬 Virtual Patient (Text & Voice)")
+
+# ------------------ CASE SELECTION ------------------
 if not st.session_state.case:
     st.header("Select a clinical case:")
-    cases = [f for f in CASES_DIR.glob("*.md")]
-    case_files = {f.stem.replace("_", " ").title(): f for f in cases}
-    choice = st.selectbox("Choose a case", ["--Select--"] + list(case_files.keys()))
-    if choice != "--Select--":
-        file_path = case_files[choice]
-        st.session_state.case = load_case(file_path)
-        st.session_state.case_name = file_path.stem
-        st.session_state.history = []
-        st.session_state.started = False
-        st.success(f"Loaded case: {st.session_state.case['title']}")
-
+    cases = list(CASES_DIR.glob("*.md"))
+    if not cases:
+        st.warning("No case files found in 'cases' folder.")
+    else:
+        case_files = {f.stem.replace("_", " ").title(): f for f in cases}
+        choice = st.selectbox("Choose a case", ["--Select--"] + list(case_files.keys()))
+        if choice != "--Select--":
+            st.session_state.case = load_case(case_files[choice])
+            st.session_state.case_name = case_files[choice].stem
+            st.session_state.history = []
+            st.session_state.started = False
+            st.success(f"✅ Loaded case: {st.session_state.case['title']}")
 else:
     case = st.session_state.case
     st.subheader(case["title"])
-    st.markdown(f"**Opening Stem:** {case.get('Opening Stem','')}")
 
-    # ====== First greeting ======
-    if not st.session_state.started:
-        greeting = "Hello, I'm your doctor today. What brings you in?"
-        add_message("user", greeting)
-        reply = call_llm(f"You are the patient in this case:\n{json.dumps(case)}",
-                         [{"role": "user", "content": greeting}])
-        audio_path = tts_response(reply)
-        add_message("assistant", reply, audio=audio_path)
-        st.session_state.started = True
-
-    # ====== CHAT UI ======
+    # ------------------ Chat Display ------------------
     st.markdown("""
-        <style>
-        .chat-container {height: 520px; overflow-y: auto; padding: 10px; background: #ECE5DD; border-radius: 15px;}
-        .bubble {padding: 10px 14px; border-radius: 18px; margin: 6px; max-width: 75%; font-size: 15px; line-height: 1.4;}
-        .doctor {background: #FFFFFF; align-self: flex-start; text-align: left;}
-        .patient {background: #DCF8C6; align-self: flex-end; text-align: left;}
-        .chat-role {font-weight: bold; display: block; margin-bottom: 4px;}
-        audio {width: 100%; margin-top: 5px;}
-        .mic-button {
-            position: fixed; bottom: 25px; right: 25px;
-            background-color: #25D366; color: white;
-            font-size: 26px; padding: 18px;
-            border-radius: 50%; cursor: pointer;
-            box-shadow: 0px 4px 10px rgba(0,0,0,0.2);
-            z-index: 1000; transition: all 0.3s ease-in-out;
-        }
-        .mic-button.recording { background-color: #d61d1d; animation: pulse 1.3s infinite; }
-        @keyframes pulse {
-            0% { box-shadow: 0 0 0 0 rgba(214,29,29, 0.6); }
-            70% { box-shadow: 0 0 0 15px rgba(214,29,29, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(214,29,29, 0); }
-        }
-        #recordBubble {
-            display:none;position:fixed;bottom:95px;right:30px;
-            background:#333;color:white;padding:8px 14px;border-radius:20px;
-            box-shadow:0 2px 8px rgba(0,0,0,0.2);font-family:sans-serif;font-size:14px;
-        }
-        #recordDot {color:red;font-size:20px;vertical-align:middle;}
-        </style>
+    <style>
+    .chat {background:#ECE5DD;border-radius:14px;padding:10px;height:420px;overflow:auto}
+    .bubble {padding:10px 14px;border-radius:18px;margin:6px;max-width:75%;font-size:15px;line-height:1.4}
+    .doctor {background:#fff;text-align:left}
+    .patient {background:#DCF8C6;text-align:left;align-self:flex-end}
+    .role {font-weight:600;margin-bottom:4px}
+    audio {width:100%;margin-top:6px}
+    </style>
     """, unsafe_allow_html=True)
 
-    chat_html = "<div class='chat-container' style='display:flex;flex-direction:column;'>"
-    for msg in st.session_state.history:
-        if msg["role"] == "user":
-            icon = "🎧 " if msg.get("recorded") else ""
-            chat_html += f"""
-            <div class='bubble doctor'>
-                <span class='chat-role'>👨‍⚕️ Doctor:</span>
-                {icon}{escape_html(msg['content'])}
-            </div>"""
+    chat_html = "<div class='chat' style='display:flex;flex-direction:column'>"
+    for m in st.session_state.history:
+        if m["role"] == "user":
+            chat_html += f"<div class='bubble doctor'><span class='role'>👨‍⚕️ Doctor:</span>{esc(m['content'])}</div>"
         else:
-            chat_html += f"""
-            <div class='bubble patient'>
-                <span class='chat-role'>🧑 Patient:</span>
-                {escape_html(msg['content'])}"""
-            if "audio" in msg:
-                with open(msg["audio"], "rb") as f:
-                    audio_b64 = base64.b64encode(f.read()).decode()
-                chat_html += f"""<audio controls>
-                        <source src="data:audio/mp3;base64,{audio_b64}" type="audio/mp3">
-                    </audio>"""
+            chat_html += f"<div class='bubble patient'><span class='role'>🧑 Patient:</span>{esc(m['content'])}"
+            if "audio" in m:
+                with open(m["audio"], "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode()
+                chat_html += f"<audio controls><source src='data:audio/mp3;base64,{b64}' type='audio/mp3'></audio>"
             chat_html += "</div>"
     chat_html += "<div id='bottom'></div></div>"
-    chat_html += "<script>var chat=document.querySelector('.chat-container');chat.scrollTop=chat.scrollHeight;</script>"
+    chat_html += "<script>var c=document.querySelector('.chat'); c.scrollTop=c.scrollHeight;</script>"
     st.markdown(chat_html, unsafe_allow_html=True)
 
-    # ====== TEXT INPUT ======
-    if prompt := st.chat_input("Type your question..."):
-        add_message("user", prompt)
-        reply = call_llm(f"You are the patient in this case:\n{json.dumps(case)}", st.session_state.history)
-        audio_path = tts_response(reply)
-        add_message("assistant", reply, audio=audio_path)
-        st.rerun()
+    # ------------------ DOCTOR INPUT ------------------
+    if not st.session_state.started and len(st.session_state.history) == 0:
+        st.info("👩‍⚕️ Start the conversation by typing or recording your question.")
 
-    # ====== JS for Push-to-Talk with Timer Bubble ======
-    components.html(
-        """
-        <div id="recordBubble">
-            <span id="recordDot">●</span>
-            <span id="recordTime">00:00</span>
-        </div>
-        <script>
-        let mediaRecorder, audioChunks = [], timerInterval, seconds = 0;
-        function startTimer(){
-          seconds = 0;
-          document.getElementById('recordBubble').style.display='block';
-          timerInterval = setInterval(()=>{
-            seconds++;
-            let m = String(Math.floor(seconds/60)).padStart(2,'0');
-            let s = String(seconds%60).padStart(2,'0');
-            document.getElementById('recordTime').innerText = `${m}:${s}`;
-          },1000);
-        }
-        function stopTimer(){
-          clearInterval(timerInterval);
-          document.getElementById('recordBubble').style.display='none';
-        }
-        window.onload = () => {
-          const mic = window.parent.document.querySelector('button[kind=primary]');
-          mic.onmousedown = startRecording;
-          mic.onmouseup = stopRecording;
-          mic.ontouchstart = startRecording;
-          mic.ontouchend = stopRecording;
-        };
-        async function startRecording(){
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          mediaRecorder = new MediaRecorder(stream);
-          audioChunks = [];
-          mediaRecorder.start();
-          mediaRecorder.addEventListener("dataavailable", e => audioChunks.push(e.data));
-          startTimer();
-        }
-        function stopRecording(){
-          mediaRecorder.stop();
-          stopTimer();
-          mediaRecorder.addEventListener("stop", () => {
-            const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
-            const reader = new FileReader();
-            reader.readAsDataURL(audioBlob);
-            reader.onloadend = () => {
-              const base64String = reader.result.split(',')[1];
-              window.parent.postMessage({ isStreamlitMessage: true, type: 'FROM_MIC', data: base64String }, '*');
-            };
-          });
-        }
-        </script>
-        """,
-        height=0
-    )
+    st.markdown("### 🩺 Doctor Input Options")
+    tab1, tab2 = st.tabs(["✍️ Text", "🎤 Voice"])
 
-    mic_clicked = st.button("🎤", key="mic_btn", help="Hold to record")
+    # Text input
+    with tab1:
+        user_input = st.text_input("Type your message:", key="chat_input")
+        if st.button("Send Text"):
+            if user_input.strip():
+                st.session_state.history.append({"role": "user", "content": user_input.strip()})
+                st.session_state.started = True
+                reply = call_llm_as_patient(case, st.session_state.history)
+                audio_path = tts_mp3(reply)
+                st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
+                st.rerun()
 
-    msg = st.query_params.get("FROM_MIC")
-    if msg:
-        audio_data = base64.b64decode(msg[0])
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".webm")
-        temp_file.write(audio_data)
-        temp_file.flush()
+    # Voice input
+    with tab2:
+        audio_data = st.audio_input("Record your message:")
+        if audio_data and st.button("Send Voice"):
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
+                f.write(audio_data.read())
+                f.flush()
+                text_transcribed = speech_to_text(f.name)
+            st.session_state.history.append({"role": "user", "content": text_transcribed + " (🎤 Voice)"})
+            st.session_state.started = True
+            reply = call_llm_as_patient(case, st.session_state.history)
+            audio_path = tts_mp3(reply)
+            st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
+            st.rerun()
 
-        transcription = transcribe_audio_file(temp_file.name)
-        add_message("user", transcription, recorded=True)
-        reply = call_llm(f"You are the patient in this case:\n{json.dumps(case)}", st.session_state.history)
-        audio_path = tts_response(reply)
-        add_message("assistant", reply, audio=audio_path)
-        st.rerun()
-
-    # ====== END ENCOUNTER ======
+    # ------------------ END ENCOUNTER ------------------
     if st.button("End Encounter"):
-        summary = "\n".join([f"{h['role']}: {h['content']}" for h in st.session_state.history])
-        log_name = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{st.session_state.case_name}.json"
-        with open(LOGS_DIR / log_name, "w", encoding="utf-8") as f:
-            json.dump(st.session_state.history, f, indent=2)
-        st.markdown("### 📝 Encounter Summary")
-        st.markdown(summary)
-        st.download_button("Download Summary (.md)", summary, file_name="summary.md")
+        summary = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.history])
+        fname = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{st.session_state.case_name}.md"
+        st.download_button("📥 Download Summary", summary, file_name=fname)
         st.session_state.case = None
