@@ -65,13 +65,17 @@ def tts_mp3(text: str) -> str:
     return tmp.name
 
 def speech_to_text(audio_file) -> str:
-    """Transcribe recorded audio using Whisper"""
-    with open(audio_file, "rb") as f:
-        transcription = client.audio.transcriptions.create(
-            model="whisper-1",
-            file=f
-        )
-    return transcription.text.strip()
+    """Transcribe recorded audio using Whisper with error handling"""
+    try:
+        with open(audio_file, "rb") as f:
+            transcription = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=f
+            )
+        return transcription.text.strip()
+    except Exception as e:
+        st.error(f"⚠️ Transcription failed: {e}")
+        return ""
 
 def esc(x: str) -> str:
     return html.escape(x).replace("\n", "<br>")
@@ -95,7 +99,6 @@ with col2:
         </div>
     """, unsafe_allow_html=True)
 
-st.title("💬 Virtual Patient (Text & Voice)")
 
 # ------------------ CASE SELECTION ------------------
 if not st.session_state.case:
@@ -162,7 +165,7 @@ else:
                 st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
                 st.rerun()
 
-    # Voice input
+    # Voice input with error handling
     with tab2:
         audio_data = st.audio_input("Record your message:")
         if audio_data and st.button("Send Voice"):
@@ -170,12 +173,16 @@ else:
                 f.write(audio_data.read())
                 f.flush()
                 text_transcribed = speech_to_text(f.name)
-            st.session_state.history.append({"role": "user", "content": text_transcribed + " (🎤 Voice)"})
-            st.session_state.started = True
-            reply = call_llm_as_patient(case, st.session_state.history)
-            audio_path = tts_mp3(reply)
-            st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
-            st.rerun()
+
+            if not text_transcribed.strip():
+                st.warning("⚠️ Voice message could not be transcribed. Please try again.")
+            else:
+                st.session_state.history.append({"role": "user", "content": text_transcribed + " (🎤 Voice)"})
+                st.session_state.started = True
+                reply = call_llm_as_patient(case, st.session_state.history)
+                audio_path = tts_mp3(reply)
+                st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
+                st.rerun()
 
     # ------------------ END ENCOUNTER ------------------
     if st.button("End Encounter"):
