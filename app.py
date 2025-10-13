@@ -37,18 +37,23 @@ def load_case(file_path: Path) -> Dict[str, str]:
     return case
 
 def call_llm_as_patient(case: Dict, history: List[Dict[str, str]]) -> str:
-    """Call LLM to simulate patient response with error handling"""
+    """Call LLM to simulate patient response with strong patient instructions"""
     system = {
         "role": "system",
         "content": (
-            "You are role-playing a human patient. "
-            "Use ONLY the information in the case. "
-            "Speak in first person. Reveal details gradually. "
-            "Reflect tone/pain from scenario. Stay in character.\n\n"
+            "You are role-playing a human patient in a clinical interview. "
+            "The user is the doctor. Always respond as the patient. "
+            "Never say 'I am a simulator'. "
+            "Base your answers ONLY on the case information. "
+            "Reveal details naturally and gradually. "
+            "If the doctor's message is general like 'what brings you here', "
+            "respond with your chief complaint.\n\n"
             f"CASE:\n{json.dumps(case)}"
         )
     }
-    msgs = [system] + history
+
+    msgs = [system] + [{"role": m["role"], "content": m["content"]} for m in history]
+
     try:
         resp = client.chat.completions.create(
             model=MODEL,
@@ -56,10 +61,13 @@ def call_llm_as_patient(case: Dict, history: List[Dict[str, str]]) -> str:
             temperature=0.8,
             max_tokens=300
         )
-        return resp.choices[0].message.content
+        reply = resp.choices[0].message.content.strip()
+        if not reply:
+            reply = "…(The patient seems unsure and stays silent.)"
+        return reply
     except Exception as e:
         st.error(f"❌ LLM request failed: {e}")
-        return ""
+        return "…(The patient is silent.)"
 
 def tts_mp3(text: str) -> str:
     """Convert text to speech and save as mp3"""
@@ -139,7 +147,8 @@ else:
     chat_html = "<div class='chat' style='display:flex;flex-direction:column'>"
     for m in st.session_state.history:
         if m["role"] == "user":
-            chat_html += f"<div class='bubble doctor'><span class='role'>👨‍⚕️ Doctor:</span>{esc(m['content'])}</div>"
+            suffix = m.get("ui_suffix", "")
+            chat_html += f"<div class='bubble doctor'><span class='role'>👨‍⚕️ Doctor:</span>{esc(m['content'])}{esc(suffix)}</div>"
         else:
             chat_html += f"<div class='bubble patient'><span class='role'>🧑 Patient:</span>{esc(m['content'])}"
             if "audio" in m:
@@ -171,7 +180,7 @@ else:
                     st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
                 st.rerun()
 
-    # Voice input with error handling
+    # Voice input with fixed suffix handling
     with tab2:
         audio_data = st.audio_input("Record your message:")
         if audio_data and st.button("Send Voice"):
@@ -180,17 +189,21 @@ else:
                 f.flush()
                 text_transcribed = speech_to_text(f.name)
 
-            st.write("📝 Transcribed text:", text_transcribed)  # Debug line
+            st.write("📝 Transcribed text:", f"“{text_transcribed}”")  # Debugging
 
-            if not text_transcribed or len(text_transcribed.strip()) < 2:
+            clean_text = text_transcribed.strip()
+            if not clean_text or len(clean_text) < 2:
                 st.warning("⚠️ Voice message was too short or unclear. Please try again.")
             else:
-                st.session_state.history.append({"role": "user", "content": text_transcribed.strip() + " (🎤 Voice)"})
+                # Add voice message to chat, but NOT to model context
+                st.session_state.history.append({"role": "user", "content": clean_text, "ui_suffix": " (🎤 Voice)"})
                 st.session_state.started = True
                 reply = call_llm_as_patient(case, st.session_state.history)
                 if reply.strip():
                     audio_path = tts_mp3(reply)
                     st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
+                else:
+                    st.warning("🤖 The virtual patient didn’t respond. Try again.")
                 st.rerun()
 
     # ------------------ END ENCOUNTER ------------------
