@@ -110,8 +110,8 @@ h1,h2,h3 {font-family: 'Segoe UI', sans-serif;}
 }
 .chat-header img {
     border-radius: 50%;
-    width: 60px;
-    height: 60px;
+    width: 70px;
+    height: 70px;
     object-fit: cover;
     margin-right: 15px;
 }
@@ -139,20 +139,16 @@ h1,h2,h3 {font-family: 'Segoe UI', sans-serif;}
 .patient { background:#e7f5ee; text-align:left; align-self:flex-end; }
 .role { font-weight:600; margin-bottom:4px; }
 
-.input-bar {
-    display: flex;
-    gap: 10px;
-    margin-top: 10px;
-}
-
 .icon-button {
     background-color: white;
     border: 1px solid #ccc;
     padding: 8px 12px;
     border-radius: 10px;
     cursor: pointer;
-    font-size: 20px;
+    font-size: 18px;
     transition: background 0.2s;
+    width: 100%;
+    text-align: center;
 }
 .icon-button.active {
     background-color: #4B72FF;
@@ -304,10 +300,10 @@ else:
     # ==========================
     col1, col2 = st.columns([0.15, 0.85])
     with col1:
-        if st.button("⌨ Keyboard"):
-            st.session_state.input_mode = "keyboard"
-        if st.button("🎤 Mic"):
-            st.session_state.input_mode = "voice"
+        kb = st.button("⌨ Keyboard", use_container_width=True)
+        mic = st.button("🎤 Mic", use_container_width=True)
+        if kb: st.session_state.input_mode = "keyboard"
+        if mic: st.session_state.input_mode = "voice"
 
     with col2:
         if st.session_state.input_mode == "keyboard":
@@ -321,7 +317,8 @@ else:
                 reply = call_llm_as_patient(st.session_state.case, st.session_state.history)
                 audio_path = tts_mp3(reply)
                 st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
-                st.session_state.text_input = ""  # Clear input after sending
+                if "text_input" in st.session_state:
+                    del st.session_state["text_input"]   # ✅ Safe clear
                 st.session_state.sent = True
                 st.rerun()
             else:
