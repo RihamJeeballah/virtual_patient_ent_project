@@ -27,16 +27,27 @@ LOGS_DIR.mkdir(exist_ok=True)
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 # ==========================
-# 🏫 HEADER BANNER (LEFT ALIGNED + SHADED BACKGROUND)
+# 🏫 HEADER BANNER (LEFT ALIGNED + SHADED + NO TOP GAP)
 # ==========================
 LOGO_PATH = "logo.png"
 
 st.markdown(f"""
 <style>
+/* Remove Streamlit default top padding and background */
 div[data-testid="stDecoration"] {{ display: none; }}
-.block-container {{ padding-top: 0rem; }}
+header {{ display: none; }}
+.block-container {{
+    padding-top: 0rem;
+    margin-top: 0rem;
+}}
 
-/* Banner Container */
+/* Reset top page spacing */
+section.main {{
+    padding-top: 0rem;
+    margin-top: 0rem;
+}}
+
+/* Banner */
 .header-banner {{
     width: 100vw;
     margin-left: calc(-50vw + 50%);
@@ -48,9 +59,10 @@ div[data-testid="stDecoration"] {{ display: none; }}
     box-sizing: border-box;
     border-bottom: 1px solid #d0d5dd;
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08);
+    position: relative;
+    z-index: 1000;
 }}
 
-/* Logo + Text Container */
 .header-content {{
     display: flex;
     align-items: center;
