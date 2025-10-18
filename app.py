@@ -27,7 +27,7 @@ LOGS_DIR.mkdir(exist_ok=True)
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 # ==========================
-# 🏫 HEADER BANNER (LEFT ALIGNED + SHADED + NO TOP GAP)
+# 🏫 HEADER BANNER (LEFT ALIGNED + SHADED + OFFSET FROM TOOLBAR)
 # ==========================
 LOGO_PATH = "logo.png"
 
@@ -56,6 +56,7 @@ section.main {{
     justify-content: flex-start;
     align-items: center;
     padding: 25px 60px;
+    margin-top: 35px; /* 👈 pushes the banner down to avoid overlap */
     box-sizing: border-box;
     border-bottom: 1px solid #d0d5dd;
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08);
