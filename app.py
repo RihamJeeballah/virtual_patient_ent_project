@@ -27,7 +27,7 @@ LOGS_DIR.mkdir(exist_ok=True)
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 # ==========================
-# 🏫 HEADER BANNER (SOLID BAR)
+# 🏫 HEADER BANNER (LEFT ALIGNED + SHADED BACKGROUND)
 # ==========================
 LOGO_PATH = "logo.png"
 
@@ -36,17 +36,21 @@ st.markdown(f"""
 div[data-testid="stDecoration"] {{ display: none; }}
 .block-container {{ padding-top: 0rem; }}
 
+/* Banner Container */
 .header-banner {{
     width: 100vw;
     margin-left: calc(-50vw + 50%);
-    background: #f2f3f7; /* soft gray background */
+    background: linear-gradient(90deg, #f0f2f5 0%, #e6e9ef 100%);
     display: flex;
+    justify-content: flex-start;
     align-items: center;
-    justify-content: center;
-    padding: 25px 20px;
-    border-bottom: 2px solid #d9d9d9;
+    padding: 25px 60px;
+    box-sizing: border-box;
+    border-bottom: 1px solid #d0d5dd;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08);
 }}
 
+/* Logo + Text Container */
 .header-content {{
     display: flex;
     align-items: center;
@@ -61,6 +65,7 @@ div[data-testid="stDecoration"] {{ display: none; }}
     display: flex;
     flex-direction: column;
     justify-content: center;
+    text-align: left;
 }}
 
 .header-text h1 {{
@@ -73,21 +78,21 @@ div[data-testid="stDecoration"] {{ display: none; }}
 .header-text h2 {{
     font-size: 20px;
     font-weight: 500;
-    color: #444;
+    color: #333;
     margin: 0;
 }}
 
 .header-text h3 {{
     font-size: 16px;
     font-weight: 400;
-    color: #666;
+    color: #555;
     margin: 0;
 }}
 </style>
 
 <div class='header-banner'>
   <div class='header-content'>
-    <img src='data:image/png;base64,{base64.b64encode(open(LOGO_PATH, "rb").read()).decode()}'>
+    <img src='data:image/png;base64,{base64.b64encode(open(LOGO_PATH, "rb").read()).decode()}' alt='Logo'>
     <div class='header-text'>
         <h1>Sultan Qaboos University</h1>
         <h2>College of Medicine and Health Sciences</h2>
