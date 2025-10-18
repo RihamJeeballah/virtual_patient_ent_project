@@ -28,15 +28,65 @@ LOGS_DIR.mkdir(exist_ok=True)
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 # ==========================
+# 🏫 HEADER BANNER
+# ==========================
+LOGO_PATH = "logo.png"  # Adjust if your logo is in another location
+st.markdown(f"""
+<style>
+.header-banner {{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    padding: 15px 10px;
+    background: linear-gradient(90deg, #f8f9fb 0%, #ffffff 100%);
+    border-bottom: 1px solid #e5e7eb;
+    margin-bottom: 25px;
+}}
+.header-banner img {{
+    height: 80px;
+}}
+.header-text {{
+    display: flex;
+    flex-direction: column;
+    text-align: left;
+}}
+.header-text h1 {{
+    font-size: 28px;
+    margin: 0;
+    font-weight: 700;
+    color: #222;
+}}
+.header-text h2 {{
+    font-size: 20px;
+    margin: 0;
+    font-weight: 500;
+    color: #444;
+}}
+.header-text h3 {{
+    font-size: 16px;
+    margin: 0;
+    font-weight: 400;
+    color: #666;
+}}
+</style>
+<div class='header-banner'>
+    <img src='data:image/png;base64,{base64.b64encode(open(LOGO_PATH, "rb").read()).decode()}'>
+    <div class='header-text'>
+        <h1>Sultan Qaboos University</h1>
+        <h2>College of Medicine and Health Sciences</h2>
+        <h3>Clinical Skills Lab</h3>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# ==========================
 # ✨ STYLING
 # ==========================
 st.markdown("""
 <style>
-/* === GENERAL === */
 body, .block-container {background-color: #f8f9fb;}
 h1,h2,h3 {font-family: 'Segoe UI', sans-serif;}
-
-/* === AVATAR CARD GRID === */
 .avatar-card {
     display: flex;
     flex-direction: column;
@@ -58,18 +108,8 @@ h1,h2,h3 {font-family: 'Segoe UI', sans-serif;}
     height: 130px;
     object-fit: cover;
 }
-.avatar-name {
-    font-weight: 700;
-    margin-top: 8px;
-    font-size: 16px;
-    color: #333;
-}
-.avatar-case {
-    color: #666;
-    font-size: 14px;
-}
-
-/* === CHAT INTERFACE === */
+.avatar-name { font-weight: 700; margin-top: 8px; font-size: 16px; color: #333; }
+.avatar-case { color: #666; font-size: 14px; }
 .chat-header {
     display: flex;
     align-items: center;
@@ -111,8 +151,6 @@ h1,h2,h3 {font-family: 'Segoe UI', sans-serif;}
     background: #f8f9fb;
     padding-top: 10px;
 }
-
-/* Button */
 .stButton>button {
     background-color: #4B72FF;
     color: white;
@@ -123,13 +161,10 @@ h1,h2,h3 {font-family: 'Segoe UI', sans-serif;}
 .stButton>button:hover {
     background-color: #3a5bd1;
 }
-
-/* Input */
 [data-baseweb="input"] input {
     border-radius: 8px !important;
     padding: 10px;
 }
-
 </style>
 """, unsafe_allow_html=True)
 
