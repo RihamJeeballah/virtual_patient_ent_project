@@ -26,8 +26,9 @@ LOGS_DIR = Path("conversations")
 LOGS_DIR.mkdir(exist_ok=True)
 
 client = OpenAI(api_key=OPENAI_API_KEY)
+
 # ==========================
-# 🏫 HEADER BANNER (LEFT ALIGNED + SHADED + OFFSET FROM TOOLBAR)
+# 🏫 HEADER BANNER (LEFT ALIGNED + SHADED + PADDED)
 # ==========================
 LOGO_PATH = "logo.png"
 
@@ -41,7 +42,6 @@ header {{ display: none; }}
     margin-top: 0rem;
 }}
 
-/* Reset top page spacing */
 section.main {{
     padding-top: 0rem;
     margin-top: 0rem;
@@ -54,9 +54,8 @@ section.main {{
     background: linear-gradient(90deg, #f0f2f5 0%, #e6e9ef 100%);
     display: flex;
     justify-content: flex-start;
-    align-items: center;
-    padding: 25px 60px;
-    margin-top: 35px; /* 👈 pushes the banner down to avoid overlap */
+    align-items: flex-start;
+    padding: 45px 60px 25px 60px; /* 👈 Top padding pushes titles down */
     box-sizing: border-box;
     border-bottom: 1px solid #d0d5dd;
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08);
@@ -317,7 +316,6 @@ if not st.session_state.case:
 else:
     case = st.session_state.case
 
-    # Header
     st.markdown(f"""
     <div class='chat-header'>
         <img src='data:image/png;base64,{base64.b64encode(open(st.session_state.avatar_path, "rb").read()).decode()}'>
@@ -333,7 +331,6 @@ else:
         st.session_state.history = []
         st.rerun()
 
-    # Chat area
     chat_html = "<div class='chat' style='display:flex;flex-direction:column'>"
     for m in st.session_state.history:
         if m["role"] == "user":
@@ -349,7 +346,6 @@ else:
     chat_html += "<script>var c=document.querySelector('.chat'); if(c){c.scrollTo({top:c.scrollHeight, behavior:'smooth'});}</script>"
     st.markdown(chat_html, unsafe_allow_html=True)
 
-    # Footer input
     with st.container():
         user_text = st.chat_input("Type your question to the patient…")
         if user_text:
