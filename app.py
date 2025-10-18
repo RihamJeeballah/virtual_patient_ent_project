@@ -28,22 +28,16 @@ LOGS_DIR.mkdir(exist_ok=True)
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 # ==========================
-# 🏫 HEADER BANNER (unchanged)
+# 🏫 HEADER BANNER
 # ==========================
 LOGO_PATH = "logo.png"
-
 st.markdown(f"""
 <style>
 div[data-testid="stDecoration"] {{ display: none; }}
 header {{ display: none; }}
-.block-container {{
-    padding-top: 0rem;
-    margin-top: 0rem;
-}}
-section.main {{
-    padding-top: 0rem;
-    margin-top: 0rem;
-}}
+.block-container {{ padding-top: 0rem; margin-top: 0rem; }}
+section.main {{ padding-top: 0rem; margin-top: 0rem; }}
+
 .header-banner {{
     width: 100vw;
     margin-left: calc(-50vw + 50%);
@@ -240,9 +234,10 @@ if "patient_name" not in st.session_state: st.session_state.patient_name = None
 if "case_name" not in st.session_state: st.session_state.case_name = None
 if "history" not in st.session_state: st.session_state.history = []
 if "input_mode" not in st.session_state: st.session_state.input_mode = "keyboard"
+if "sent" not in st.session_state: st.session_state.sent = False
 
 # ==========================
-# 🧍 PATIENT SELECTION PAGE (unchanged)
+# 🧍 PATIENT SELECTION PAGE
 # ==========================
 if not st.session_state.case:
     st.subheader("🩺 Select a Patient Case")
@@ -275,7 +270,7 @@ if not st.session_state.case:
             """, unsafe_allow_html=True)
 
 # ==========================
-# 💬 CHAT PAGE (improved)
+# 💬 CHAT PAGE
 # ==========================
 else:
     st.button("⬅️ Back to Patients", on_click=lambda: (st.session_state.update({"case": None, "history": []}), st.rerun()))
@@ -301,33 +296,40 @@ else:
                     b64 = base64.b64encode(f.read()).decode()
                 chat_html += f"<audio autoplay><source src='data:audio/mp3;base64,{b64}' type='audio/mp3'></audio>"
     chat_html += "<div id='bottom'></div></div>"
-    chat_html += "<script>var c=document.querySelector('.chat'); if(c){c.scrollTo({top:c.scrollHeight, behavior:'smooth'});}</script>"
+    chat_html += "<script>var c=document.querySelector('.chat'); if(c){{c.scrollTo({{top:c.scrollHeight, behavior:'smooth'}});}}</script>"
     st.markdown(chat_html, unsafe_allow_html=True)
 
-    # 🎤⌨️ Input bar toggle buttons
+    # ==========================
+    # INPUT BAR
+    # ==========================
     col1, col2 = st.columns([0.15, 0.85])
     with col1:
-        k_active = "active" if st.session_state.input_mode == "keyboard" else ""
-        v_active = "active" if st.session_state.input_mode == "voice" else ""
-        if st.button(f"⌨ Keyboard", key="keyboard_button"):
+        if st.button("⌨ Keyboard"):
             st.session_state.input_mode = "keyboard"
-            st.rerun()
-        if st.button(f"🎤 Mic", key="voice_button"):
+        if st.button("🎤 Mic"):
             st.session_state.input_mode = "voice"
-            st.rerun()
 
     with col2:
         if st.session_state.input_mode == "keyboard":
-            user_text = st.text_input("Type your question…", key="text_input", label_visibility="collapsed")
-            if user_text:
+            user_text = st.text_input(
+                "Type your question…",
+                key="text_input",
+                label_visibility="collapsed"
+            )
+            if user_text and not st.session_state.sent:
                 st.session_state.history.append({"role": "user", "content": user_text})
                 reply = call_llm_as_patient(st.session_state.case, st.session_state.history)
                 audio_path = tts_mp3(reply)
                 st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
+                st.session_state.text_input = ""  # Clear input after sending
+                st.session_state.sent = True
                 st.rerun()
+            else:
+                st.session_state.sent = False
+
         else:
             audio_data = st.audio_input("Record your question", label_visibility="collapsed")
-            if audio_data:
+            if audio_data and not st.session_state.sent:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
                     f.write(audio_data.read())
                     f.flush()
@@ -337,4 +339,7 @@ else:
                     reply = call_llm_as_patient(st.session_state.case, st.session_state.history)
                     audio_path = tts_mp3(reply)
                     st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
+                    st.session_state.sent = True
                     st.rerun()
+            else:
+                st.session_state.sent = False
