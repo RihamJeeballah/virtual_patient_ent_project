@@ -20,6 +20,7 @@ if not OPENAI_API_KEY:
 client = OpenAI(api_key=OPENAI_API_KEY)
 MODEL = "gpt-4o-mini"
 CASES_DIR = Path("cases")
+AVATAR_DIR = Path(r"C:\Users\10User\Documents\virtual_patient_ent_project")
 LOGS_DIR = Path("conversations")
 LOGS_DIR.mkdir(exist_ok=True)
 
@@ -36,18 +37,25 @@ def load_case(file_path: Path) -> Dict[str, str]:
         case[header] = body
     return case
 
+def get_avatar_and_name(case_stem: str):
+    """Get avatar path and patient name based on file naming pattern."""
+    for f in AVATAR_DIR.glob(f"{case_stem}_*.png"):
+        parts = f.stem.split("_")
+        if len(parts) >= 2:
+            patient_name = parts[-1].capitalize()
+            return str(f), patient_name
+    return None, None
+
 def call_llm_as_patient(case: Dict, history: List[Dict[str, str]]) -> str:
     """Call LLM to simulate patient response with strong patient instructions"""
     system = {
         "role": "system",
         "content": (
-            "You are role-playing a human patient in a clinical interview. "
-            "The user is the doctor. Always respond as the patient. "
-            "Never say 'I am a simulator'. "
-            "Base your answers ONLY on the case information. "
-            "Reveal details naturally and gradually. "
-            "If the doctor's message is general like 'what brings you here', "
-            "respond with your chief complaint.\n\n"
+            "You are role-playing a human patient in a medical interview. "
+            "Never say you're an AI or simulator. "
+            "Do not reveal everything at once — answer only what was asked. "
+            "If the question is vague, reply with your main symptom. "
+            "Keep tone realistic and human-like.\n\n"
             f"CASE:\n{json.dumps(case)}"
         )
     }
@@ -96,6 +104,8 @@ def esc(x: str) -> str:
 if "case" not in st.session_state: st.session_state.case = None
 if "history" not in st.session_state: st.session_state.history = []
 if "started" not in st.session_state: st.session_state.started = False
+if "avatar_path" not in st.session_state: st.session_state.avatar_path = None
+if "patient_name" not in st.session_state: st.session_state.patient_name = None
 
 # ------------------ HEADER ------------------
 col1, col2 = st.columns([1, 5])
@@ -123,24 +133,32 @@ if not st.session_state.case:
         case_files = {f.stem.replace("_", " ").title(): f for f in cases}
         choice = st.selectbox("Choose a case", ["--Select--"] + list(case_files.keys()))
         if choice != "--Select--":
-            st.session_state.case = load_case(case_files[choice])
-            st.session_state.case_name = case_files[choice].stem
+            selected_file = case_files[choice]
+            st.session_state.case = load_case(selected_file)
+            st.session_state.case_name = selected_file.stem
+            st.session_state.avatar_path, st.session_state.patient_name = get_avatar_and_name(selected_file.stem)
             st.session_state.history = []
             st.session_state.started = False
             st.success(f"✅ Loaded case: {st.session_state.case['title']}")
 else:
     case = st.session_state.case
-    st.subheader(case["title"])
+
+    # ------------------ Patient Avatar ------------------
+    if st.session_state.avatar_path:
+        colA, colB = st.columns([1, 4])
+        with colA:
+            st.image(st.session_state.avatar_path, width=120)
+        with colB:
+            st.markdown(f"<h2 style='margin:0'>{st.session_state.patient_name}</h2>", unsafe_allow_html=True)
 
     # ------------------ Chat Display ------------------
     st.markdown("""
     <style>
-    .chat {background:#ECE5DD;border-radius:14px;padding:10px;height:420px;overflow:auto}
+    .chat {background:#f6f6f6;border-radius:14px;padding:10px;height:420px;overflow-y:auto;box-shadow:0 0 8px rgba(0,0,0,0.1);}
     .bubble {padding:10px 14px;border-radius:18px;margin:6px;max-width:75%;font-size:15px;line-height:1.4}
     .doctor {background:#fff;text-align:left}
-    .patient {background:#DCF8C6;text-align:left;align-self:flex-end}
+    .patient {background:#e6f4ea;text-align:left;align-self:flex-end}
     .role {font-weight:600;margin-bottom:4px}
-    audio {width:100%;margin-top:6px}
     </style>
     """, unsafe_allow_html=True)
 
@@ -154,16 +172,13 @@ else:
             if "audio" in m:
                 with open(m["audio"], "rb") as f:
                     b64 = base64.b64encode(f.read()).decode()
-                chat_html += f"<audio controls><source src='data:audio/mp3;base64,{b64}' type='audio/mp3'></audio>"
+                chat_html += f"<audio autoplay><source src='data:audio/mp3;base64,{b64}' type='audio/mp3'></audio>"
             chat_html += "</div>"
     chat_html += "<div id='bottom'></div></div>"
-    chat_html += "<script>var c=document.querySelector('.chat'); c.scrollTop=c.scrollHeight;</script>"
+    chat_html += "<script>var c=document.querySelector('.chat'); if(c){c.scrollTo({top:c.scrollHeight, behavior:'smooth'});}</script>"
     st.markdown(chat_html, unsafe_allow_html=True)
 
     # ------------------ DOCTOR INPUT ------------------
-    if not st.session_state.started and len(st.session_state.history) == 0:
-        st.info("👩‍⚕️ Start the conversation by typing or recording your question.")
-
     st.markdown("### 🩺 Doctor Input Options")
     tab1, tab2 = st.tabs(["✍️ Text", "🎤 Voice"])
 
@@ -180,31 +195,25 @@ else:
                     st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
                 st.rerun()
 
-    # Voice input with fixed suffix handling
+    # Voice input — AUTO SEND ON RECORD FINISH
     with tab2:
         audio_data = st.audio_input("Record your message:")
-        if audio_data and st.button("Send Voice"):
+        if audio_data:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
                 f.write(audio_data.read())
                 f.flush()
                 text_transcribed = speech_to_text(f.name)
 
-            st.write("📝 Transcribed text:", f"“{text_transcribed}”")  # Debugging
-
-            clean_text = text_transcribed.strip()
-            if not clean_text or len(clean_text) < 2:
-                st.warning("⚠️ Voice message was too short or unclear. Please try again.")
-            else:
-                # Add voice message to chat, but NOT to model context
-                st.session_state.history.append({"role": "user", "content": clean_text, "ui_suffix": " (🎤 Voice)"})
+            if text_transcribed and len(text_transcribed) > 2:
+                st.session_state.history.append({"role": "user", "content": text_transcribed.strip(), "ui_suffix": " (🎤 Voice)"})
                 st.session_state.started = True
                 reply = call_llm_as_patient(case, st.session_state.history)
                 if reply.strip():
                     audio_path = tts_mp3(reply)
                     st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
-                else:
-                    st.warning("🤖 The virtual patient didn’t respond. Try again.")
                 st.rerun()
+            else:
+                st.warning("⚠️ Voice message was too short or unclear. Please try again.")
 
     # ------------------ END ENCOUNTER ------------------
     if st.button("End Encounter"):
