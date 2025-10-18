@@ -28,23 +28,32 @@ LOGS_DIR.mkdir(exist_ok=True)
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 # ==========================
-# 🏫 HEADER BANNER
+# 🏫 HEADER BANNER (FULL WIDTH)
 # ==========================
-LOGO_PATH = "logo.png"  # Adjust if your logo is in another location
+LOGO_PATH = "logo.png"
+
 st.markdown(f"""
 <style>
+/* Full width banner */
+div[data-testid="stDecoration"] {{ display: none; }}
+.block-container {{ padding-top: 0rem; }}
 .header-banner {{
+    position: relative;
+    left: 0;
+    top: 0;
+    width: 100vw;
+    margin-left: calc(-50vw + 50%);
+    background: linear-gradient(90deg, #f8f9fb 0%, #ffffff 100%);
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 20px;
-    padding: 15px 10px;
-    background: linear-gradient(90deg, #f8f9fb 0%, #ffffff 100%);
+    padding: 20px 40px;
     border-bottom: 1px solid #e5e7eb;
-    margin-bottom: 25px;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.05);
 }}
 .header-banner img {{
     height: 80px;
+    margin-right: 20px;
 }}
 .header-text {{
     display: flex;
@@ -52,7 +61,7 @@ st.markdown(f"""
     text-align: left;
 }}
 .header-text h1 {{
-    font-size: 28px;
+    font-size: 30px;
     margin: 0;
     font-weight: 700;
     color: #222;
@@ -249,7 +258,7 @@ if "history" not in st.session_state: st.session_state.history = []
 if not st.session_state.case:
     st.subheader("🩺 Select a Patient Case")
 
-    avatars = sorted(AVATAR_DIR.glob("*.png"))
+    avatars = [a for a in sorted(AVATAR_DIR.glob("*.png")) if a.stem.lower() != "logo"]
     num_cols = 4
     cols = st.columns(num_cols)
 
