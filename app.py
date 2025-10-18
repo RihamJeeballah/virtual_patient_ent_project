@@ -1,4 +1,4 @@
-import os, re, json, html, base64, tempfile, uuid
+import os, re, json, html, base64, tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
@@ -21,67 +21,115 @@ if not OPENAI_API_KEY:
 
 MODEL = "gpt-4o-mini"
 CASES_DIR = Path("cases")
-AVATAR_DIR = Path(".")  # same folder where images are stored
+AVATAR_DIR = Path(".")
 LOGS_DIR = Path("conversations")
 LOGS_DIR.mkdir(exist_ok=True)
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 # ==========================
-# ✨ CSS
+# ✨ STYLING
 # ==========================
 st.markdown("""
 <style>
-/* General layout */
+/* === GENERAL === */
+body, .block-container {background-color: #f8f9fb;}
+h1,h2,h3 {font-family: 'Segoe UI', sans-serif;}
+
+/* === AVATAR CARD GRID === */
+.avatar-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: white;
+    border-radius: 14px;
+    padding: 15px;
+    margin-bottom: 20px;
+    transition: box-shadow 0.2s ease;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    cursor: pointer;
+}
+.avatar-card:hover {
+    box-shadow: 0 4px 14px rgba(0,0,0,0.1);
+}
+.avatar-card img {
+    border-radius: 50%;
+    width: 130px;
+    height: 130px;
+    object-fit: cover;
+}
+.avatar-name {
+    font-weight: 700;
+    margin-top: 8px;
+    font-size: 16px;
+    color: #333;
+}
+.avatar-case {
+    color: #666;
+    font-size: 14px;
+}
+
+/* === CHAT INTERFACE === */
+.chat-header {
+    display: flex;
+    align-items: center;
+    background: white;
+    border-radius: 14px;
+    padding: 10px 20px;
+    margin-bottom: 15px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+.chat-header img {
+    border-radius: 50%;
+    width: 60px;
+    height: 60px;
+    object-fit: cover;
+    margin-right: 15px;
+}
 .chat {
-  background:#F8F9FA;
-  border-radius:14px;
-  padding:10px;
-  height:480px;
-  overflow-y:auto;
-  box-shadow:0 2px 10px rgba(0,0,0,0.05);
+    background:#FFFFFF;
+    border-radius:14px;
+    padding:15px;
+    height: 500px;
+    overflow-y:auto;
+    box-shadow:0 2px 8px rgba(0,0,0,0.05);
 }
 .bubble {
-  padding:10px 14px;
-  border-radius:18px;
-  margin:6px;
-  max-width:75%;
-  font-size:15px;
-  line-height:1.5;
+    padding:10px 14px;
+    border-radius:18px;
+    margin:8px;
+    max-width:70%;
+    font-size:15px;
+    line-height:1.5;
 }
-.doctor {
-  background:#ffffff;
-  text-align:left;
-  border:1px solid #eee;
+.doctor { background:#eef1f5; text-align:left; align-self:flex-start; }
+.patient { background:#e7f5ee; text-align:left; align-self:flex-end; }
+.role { font-weight:600; margin-bottom:4px; }
+.chat-footer {
+    position: sticky;
+    bottom: 0;
+    background: #f8f9fb;
+    padding-top: 10px;
 }
-.patient {
-  background:#E7F5EE;
-  text-align:left;
-  align-self:flex-end;
-  border:1px solid #d9f0e6;
+
+/* Button */
+.stButton>button {
+    background-color: #4B72FF;
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
 }
-.role { font-weight:600; margin-bottom:4px }
-audio { width:100%; margin-top:6px }
-.stButton>button {white-space:normal;height:auto;}
-.avatar-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  background: #ffffff;
-  border: 1px solid #ddd;
-  border-radius: 12px;
-  padding: 10px;
-  margin-bottom: 15px;
-  box-shadow: 0 1px 6px rgba(0,0,0,0.05);
-  cursor: pointer;
-  transition: all 0.2s ease;
+.stButton>button:hover {
+    background-color: #3a5bd1;
 }
-.avatar-btn:hover {
-  box-shadow: 0 3px 10px rgba(0,0,0,0.1);
-  background: #f8f8f8;
+
+/* Input */
+[data-baseweb="input"] input {
+    border-radius: 8px !important;
+    padding: 10px;
 }
-.avatar-name { font-weight: 600; margin-top: 5px; font-size: 15px; }
-.avatar-case { color: #666; font-size: 13px; }
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -103,7 +151,6 @@ def load_case(file_path: Path) -> Dict[str, str]:
     return case
 
 def match_case_by_name(case_name: str):
-    # Match avatar file name (e.g. blocked_nose) with case markdown file
     for cf in CASES_DIR.glob("*.md"):
         if case_name.lower() in cf.stem.lower():
             return cf
@@ -113,12 +160,10 @@ def call_llm_as_patient(case: Dict, history: List[Dict[str, str]]) -> str:
     system = {
         "role": "system",
         "content": (
-            "You are role-playing a real human patient in a clinical interview.\n"
-            "- Never reveal that you are simulated.\n"
-            "- Respond naturally and only to what was asked.\n"
-            "- If the question is vague, give your main symptom.\n"
-            "- Do not give the entire history at once.\n"
-            "- Keep tone human-like and realistic.\n\n"
+            "You are a human patient in a clinical interview.\n"
+            "- Speak naturally and reveal information gradually.\n"
+            "- If the question is vague, state your main symptom.\n"
+            "- Do not act like an AI.\n\n"
             f"CASE:\n{json.dumps(case)}"
         )
     }
@@ -155,21 +200,22 @@ def speech_to_text(audio_file) -> str:
         return ""
 
 # ==========================
-# 🧭 STATE
+# STATE
 # ==========================
 if "case" not in st.session_state: st.session_state.case = None
-if "case_name" not in st.session_state: st.session_state.case_name = None
 if "avatar_path" not in st.session_state: st.session_state.avatar_path = None
 if "patient_name" not in st.session_state: st.session_state.patient_name = None
+if "case_name" not in st.session_state: st.session_state.case_name = None
 if "history" not in st.session_state: st.session_state.history = []
 
 # ==========================
-# 🧍 AVATAR CASE SELECTION
+# 🧍 PATIENT SELECTION PAGE
 # ==========================
 if not st.session_state.case:
-    st.subheader("Select a Patient Case")
+    st.subheader("🩺 Select a Patient Case")
+
     avatars = sorted(AVATAR_DIR.glob("*.png"))
-    num_cols = 3
+    num_cols = 4
     cols = st.columns(num_cols)
 
     for i, avatar in enumerate(avatars):
@@ -178,44 +224,52 @@ if not st.session_state.case:
         patient_name = parts[-1].title()
         col = cols[i % num_cols]
         with col:
-            with st.container():
-                st.image(str(avatar), width=150)
-                if st.button(f"🧑 {patient_name}\n🩺 {case_name}", key=f"avatar_{avatar.stem}", use_container_width=True):
-                    matched_case = match_case_by_name("_".join(parts[:-1]))
-                    if matched_case:
-                        st.session_state.case = load_case(matched_case)
-                        st.session_state.case_name = matched_case.stem
-                        st.session_state.avatar_path = str(avatar)
-                        st.session_state.patient_name = patient_name
-                        st.session_state.history = []
-                        st.rerun()
+            if st.button(f"🧑 {patient_name}\n🩺 {case_name}", key=f"btn_{avatar.stem}"):
+                matched_case = match_case_by_name("_".join(parts[:-1]))
+                if matched_case:
+                    st.session_state.case = load_case(matched_case)
+                    st.session_state.case_name = matched_case.stem
+                    st.session_state.avatar_path = str(avatar)
+                    st.session_state.patient_name = patient_name
+                    st.session_state.history = []
+                    st.rerun()
+            st.markdown(f"""
+                <div class='avatar-card'>
+                    <img src='data:image/png;base64,{base64.b64encode(open(str(avatar), "rb").read()).decode()}'>
+                    <div class='avatar-name'>{patient_name}</div>
+                    <div class='avatar-case'>{case_name}</div>
+                </div>
+            """, unsafe_allow_html=True)
 
 # ==========================
-# 💬 CHAT INTERFACE
+# 💬 CHAT PAGE
 # ==========================
 else:
     case = st.session_state.case
 
-    # Back button
+    # Header
+    st.markdown(f"""
+    <div class='chat-header'>
+        <img src='data:image/png;base64,{base64.b64encode(open(st.session_state.avatar_path, "rb").read()).decode()}'>
+        <div>
+            <h3 style='margin:0'>{st.session_state.patient_name}</h3>
+            <div style='color:#777;font-size:14px;'>{case.get("title","")}</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
     if st.button("⬅️ Back to Patients"):
         st.session_state.case = None
         st.session_state.history = []
         st.rerun()
 
-    # Patient Banner
-    colA, colB = st.columns([1, 5])
-    with colA:
-        st.image(st.session_state.avatar_path, width=130)
-    with colB:
-        st.markdown(f"<h2 style='margin:0'>{st.session_state.patient_name}</h2><p style='color:#666'>{esc(case.get('Setting',''))}</p>", unsafe_allow_html=True)
-
-    # Chat display
+    # Chat area
     chat_html = "<div class='chat' style='display:flex;flex-direction:column'>"
     for m in st.session_state.history:
         if m["role"] == "user":
-            chat_html += f"<div class='bubble doctor'><span class='role'>👨‍⚕️ Doctor:</span>{esc(m['content'])}</div>"
+            chat_html += f"<div class='bubble doctor'><span class='role'>👨‍⚕️</span>{esc(m['content'])}</div>"
         else:
-            chat_html += f"<div class='bubble patient'><span class='role'>🧑 Patient:</span>{esc(m['content'])}"
+            chat_html += f"<div class='bubble patient'><span class='role'>🧑</span>{esc(m['content'])}"
             if "audio" in m:
                 with open(m["audio"], "rb") as f:
                     b64 = base64.b64encode(f.read()).decode()
@@ -225,30 +279,30 @@ else:
     chat_html += "<script>var c=document.querySelector('.chat'); if(c){c.scrollTo({top:c.scrollHeight, behavior:'smooth'});}</script>"
     st.markdown(chat_html, unsafe_allow_html=True)
 
-    # Text input (auto-send)
-    user_text = st.chat_input("Type your question to the patient…")
-    if user_text:
-        st.session_state.history.append({"role": "user", "content": user_text})
-        reply = call_llm_as_patient(case, st.session_state.history)
-        if reply:
-            audio_path = tts_mp3(reply)
-            st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
-        st.rerun()
-
-    # Voice input (auto-send after recording)
-    audio_data = st.audio_input("🎤 Record your question")
-    if audio_data:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
-            f.write(audio_data.read())
-            f.flush()
-            text_transcribed = speech_to_text(f.name)
-
-        if text_transcribed and len(text_transcribed) > 2:
-            st.session_state.history.append({"role": "user", "content": text_transcribed + " (🎤 Voice)"})
+    # Footer input
+    with st.container():
+        user_text = st.chat_input("Type your question to the patient…")
+        if user_text:
+            st.session_state.history.append({"role": "user", "content": user_text})
             reply = call_llm_as_patient(case, st.session_state.history)
             if reply:
                 audio_path = tts_mp3(reply)
                 st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
             st.rerun()
-        else:
-            st.warning("⚠️ Voice message was too short or unclear. Please try again.")
+
+        audio_data = st.audio_input("🎤 Record your question")
+        if audio_data:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
+                f.write(audio_data.read())
+                f.flush()
+                text_transcribed = speech_to_text(f.name)
+
+            if text_transcribed and len(text_transcribed) > 2:
+                st.session_state.history.append({"role": "user", "content": text_transcribed + " (🎤 Voice)"})
+                reply = call_llm_as_patient(case, st.session_state.history)
+                if reply:
+                    audio_path = tts_mp3(reply)
+                    st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
+                st.rerun()
+            else:
+                st.warning("⚠️ Voice message was too short or unclear.")
