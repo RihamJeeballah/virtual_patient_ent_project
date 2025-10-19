@@ -1,4 +1,4 @@
-import os, re, json, html, base64, tempfile
+import os, re, json, html, base64, tempfile, io
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
@@ -28,164 +28,24 @@ LOGS_DIR.mkdir(exist_ok=True)
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 # ==========================
-# 🏫 HEADER BANNER
-# ==========================
-LOGO_PATH = "logo.png"
-st.markdown(f"""
-<style>
-div[data-testid="stDecoration"] {{ display: none; }}
-header {{ display: none; }}
-.block-container {{ padding-top: 0rem; margin-top: 0rem; }}
-section.main {{ padding-top: 0rem; margin-top: 0rem; }}
-
-.header-banner {{
-    width: 100vw;
-    margin-left: calc(-50vw + 50%);
-    background: linear-gradient(90deg, #f0f2f5 0%, #e6e9ef 100%);
-    display: flex;
-    justify-content: flex-start;
-    align-items: flex-start;
-    padding: 45px 60px 25px 60px;
-    border-bottom: 1px solid #d0d5dd;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08);
-    position: relative;
-    z-index: 1000;
-}}
-.header-content {{ display: flex; align-items: center; gap: 20px; }}
-.header-banner img {{ height: 90px; }}
-.header-text {{ display: flex; flex-direction: column; justify-content: center; text-align: left; }}
-.header-text h1 {{ font-size: 28px; font-weight: 700; color: #222; margin: 0; }}
-.header-text h2 {{ font-size: 20px; font-weight: 500; color: #333; margin: 0; }}
-.header-text h3 {{ font-size: 16px; font-weight: 400; color: #555; margin: 0; }}
-</style>
-<div class='header-banner'>
-  <div class='header-content'>
-    <img src='data:image/png;base64,{base64.b64encode(open(LOGO_PATH, "rb").read()).decode()}' alt='Logo'>
-    <div class='header-text'>
-        <h1>Sultan Qaboos University</h1>
-        <h2>College of Medicine and Health Sciences</h2>
-        <h3>Clinical Skills Lab</h3>
-    </div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
-
-# ==========================
-# ✨ STYLING
-# ==========================
-st.markdown("""
-<style>
-body, .block-container {background-color: #f8f9fb;}
-h1,h2,h3 {font-family: 'Segoe UI', sans-serif;}
-.avatar-card {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    background: white;
-    border-radius: 14px;
-    padding: 15px;
-    margin-bottom: 20px;
-    transition: box-shadow 0.2s ease;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-    cursor: pointer;
-}
-.avatar-card:hover { box-shadow: 0 4px 14px rgba(0,0,0,0.1); }
-.avatar-card img {
-    border-radius: 50%;
-    width: 130px;
-    height: 130px;
-    object-fit: cover;
-}
-.avatar-name { font-weight: 700; margin-top: 8px; font-size: 16px; color: #333; }
-.avatar-case { color: #666; font-size: 14px; }
-
-.chat-header {
-    display: flex;
-    align-items: center;
-    background: white;
-    border-radius: 14px;
-    padding: 10px 20px;
-    margin-bottom: 15px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-}
-.chat-header img {
-    border-radius: 50%;
-    width: 70px;
-    height: 70px;
-    object-fit: cover;
-    margin-right: 15px;
-}
-
-.chat {
-    background:#FFFFFF;
-    border-radius:14px;
-    padding:15px;
-    height: 500px;
-    overflow-y:auto;
-    box-shadow:0 2px 8px rgba(0,0,0,0.05);
-    display:flex;
-    flex-direction:column;
-}
-
-.bubble {
-    padding:10px 14px;
-    border-radius:18px;
-    margin:8px;
-    max-width:70%;
-    font-size:15px;
-    line-height:1.5;
-}
-.doctor { background:#eef1f5; text-align:left; align-self:flex-start; }
-.patient { background:#e7f5ee; text-align:left; align-self:flex-end; }
-.role { font-weight:600; margin-bottom:4px; }
-
-.icon-button {
-    background-color: white;
-    border: 1px solid #ccc;
-    padding: 8px 12px;
-    border-radius: 10px;
-    cursor: pointer;
-    font-size: 18px;
-    transition: background 0.2s;
-    width: 100%;
-    text-align: center;
-}
-.icon-button.active {
-    background-color: #4B72FF;
-    color: white;
-}
-.icon-button:hover {
-    background-color: #f0f0f0;
-}
-[data-baseweb="input"] input {
-    border-radius: 8px !important;
-    padding: 10px;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# ==========================
 # 🧠 HELPERS
 # ==========================
 def esc(x: str) -> str:
     return html.escape(x).replace("\n", "<br>")
 
-def load_case(file_path: Path) -> Dict[str, str]:
-    text = file_path.read_text(encoding="utf-8")
-    sections = re.split(r"^## ", text, flags=re.M)
-    case = {"title": sections[0].strip("# \n")}
-    for sec in sections[1:]:
-        parts = sec.split("\n", 1)
-        header = parts[0].strip()
-        body = parts[1].strip() if len(parts) > 1 else ""
-        case[header] = body
-    return case
+def tts_mp3(text: str) -> str:
+    tts = gTTS(text=text, lang="en")
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+    tts.save(tmp.name)
+    return tmp.name
 
-def match_case_by_name(case_name: str):
-    for cf in CASES_DIR.glob("*.md"):
-        if case_name.lower() in cf.stem.lower():
-            return cf
-    return None
+def speech_to_text(audio_file) -> str:
+    with open(audio_file, "rb") as f:
+        transcription = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=f
+        )
+    return transcription.text.strip()
 
 def call_llm_as_patient(case: Dict, history: List[Dict[str, str]]) -> str:
     system = {
@@ -207,118 +67,102 @@ def call_llm_as_patient(case: Dict, history: List[Dict[str, str]]) -> str:
     )
     return resp.choices[0].message.content.strip()
 
-def tts_mp3(text: str) -> str:
-    tts = gTTS(text=text, lang="en")
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-    tts.save(tmp.name)
-    return tmp.name
-
-def speech_to_text(audio_file) -> str:
-    with open(audio_file, "rb") as f:
-        transcription = client.audio.transcriptions.create(
-            model="whisper-1",
-            file=f
-        )
-    return transcription.text.strip()
-
 # ==========================
 # STATE
 # ==========================
 if "case" not in st.session_state: st.session_state.case = None
 if "avatar_path" not in st.session_state: st.session_state.avatar_path = None
 if "patient_name" not in st.session_state: st.session_state.patient_name = None
-if "case_name" not in st.session_state: st.session_state.case_name = None
 if "history" not in st.session_state: st.session_state.history = []
 if "input_mode" not in st.session_state: st.session_state.input_mode = "keyboard"
 if "sent" not in st.session_state: st.session_state.sent = False
 
 # ==========================
-# 🧍 PATIENT SELECTION PAGE
-# ==========================
-if not st.session_state.case:
-    st.subheader("🩺 Select a Patient Case")
-
-    avatars = [a for a in sorted(AVATAR_DIR.glob("*.png")) if a.stem.lower() != "logo"]
-    num_cols = 4
-    cols = st.columns(num_cols)
-
-    for i, avatar in enumerate(avatars):
-        parts = avatar.stem.split("_")
-        case_name = " ".join(parts[:-1]).title()
-        patient_name = parts[-1].title()
-        col = cols[i % num_cols]
-        with col:
-            if st.button(f"🧑 {patient_name}\n🩺 {case_name}", key=f"btn_{avatar.stem}"):
-                matched_case = match_case_by_name("_".join(parts[:-1]))
-                if matched_case:
-                    st.session_state.case = load_case(matched_case)
-                    st.session_state.case_name = matched_case.stem
-                    st.session_state.avatar_path = str(avatar)
-                    st.session_state.patient_name = patient_name
-                    st.session_state.history = []
-                    st.rerun()
-            st.markdown(f"""
-                <div class='avatar-card'>
-                    <img src='data:image/png;base64,{base64.b64encode(open(str(avatar), "rb").read()).decode()}'>
-                    <div class='avatar-name'>{patient_name}</div>
-                    <div class='avatar-case'>{case_name}</div>
-                </div>
-            """, unsafe_allow_html=True)
-
-# ==========================
 # 💬 CHAT PAGE
 # ==========================
-else:
+if st.session_state.case:
     st.button("⬅️ Back to Patients", on_click=lambda: (st.session_state.update({"case": None, "history": []}), st.rerun()))
 
+    # Enlarged patient image with name under
     st.markdown(f"""
-    <div class='chat-header'>
-        <img src='data:image/png;base64,{base64.b64encode(open(st.session_state.avatar_path, "rb").read()).decode()}'>
-        <div>
-            <h3 style='margin:0'>{st.session_state.patient_name}</h3>
+    <div style='display:flex;flex-direction:column;align-items:center;gap:10px;background:white;padding:20px;border-radius:15px;box-shadow:0 2px 6px rgba(0,0,0,0.05);margin-bottom:15px;'>
+        <img src='data:image/png;base64,{base64.b64encode(open(st.session_state.avatar_path, "rb").read()).decode()}'
+             style='border-radius:50%;width:150px;height:150px;object-fit:cover;'>
+        <div style='text-align:center;'>
+            <h2 style='margin:0;'>{st.session_state.patient_name}</h2>
             <div style='color:#777;font-size:14px;'>{st.session_state.case.get("title","")}</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    chat_html = "<div class='chat' id='chat-box'>"
-    for m in st.session_state.history:
+    # Convert patient avatar to base64 for message icon
+    with open(st.session_state.avatar_path, "rb") as img_f:
+        patient_icon_b64 = base64.b64encode(img_f.read()).decode()
+
+    # ==========================
+    # CHAT LOOP (latest at bottom)
+    # ==========================
+    chat_html = "<div class='chat' style='background:#fff;border-radius:14px;height:500px;overflow-y:auto;display:flex;flex-direction:column-reverse;padding:15px;'>"
+    for m in reversed(st.session_state.history):
         if m["role"] == "user":
-            chat_html += f"<div class='bubble doctor'><span class='role'>👨‍⚕️</span>{esc(m['content'])}</div>"
-        else:
-            chat_html += f"<div class='bubble patient'><span class='role'>🧑</span>{esc(m['content'])}</div>"
+            chat_html += f"""
+            <div class='bubble doctor'>
+                <span class='role'>👨‍⚕️</span>{esc(m['content'])}
+            """
             if "audio" in m:
                 with open(m["audio"], "rb") as f:
                     b64 = base64.b64encode(f.read()).decode()
-                chat_html += f"<audio autoplay><source src='data:audio/mp3;base64,{b64}' type='audio/mp3'></audio>"
-    chat_html += "<div id='bottom'></div></div>"
-    chat_html += "<script>var c=document.querySelector('.chat'); if(c){{c.scrollTo({{top:c.scrollHeight, behavior:'smooth'}});}}</script>"
+                chat_html += f"<audio controls style='display:block;margin-top:4px;'><source src='data:audio/mp3;base64,{b64}' type='audio/mp3'></audio>"
+            chat_html += "</div>"
+        else:
+            chat_html += f"""
+            <div class='bubble patient'>
+                <img src='data:image/png;base64,{patient_icon_b64}'
+                     style='width:25px;height:25px;border-radius:50%;vertical-align:middle;margin-right:8px;'>
+                {esc(m['content'])}
+            """
+            if "audio" in m:
+                with open(m["audio"], "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode()
+                chat_html += f"<audio controls style='display:block;margin-top:4px;'><source src='data:audio/mp3;base64,{b64}' type='audio/mp3'></audio>"
+            chat_html += "</div>"
+    chat_html += "</div>"
     st.markdown(chat_html, unsafe_allow_html=True)
 
     # ==========================
-    # INPUT BAR
+    # Input Bar (Mic + Keyboard)
     # ==========================
-    col1, col2 = st.columns([0.15, 0.85])
-    with col1:
-        kb = st.button("⌨ Keyboard", use_container_width=True)
-        mic = st.button("🎤 Mic", use_container_width=True)
+    st.markdown("""
+    <style>
+    .icon-button {
+        background:white;
+        border:1px solid #ccc;
+        padding:8px 12px;
+        border-radius:10px;
+        cursor:pointer;
+        font-size:18px;
+    }
+    .icon-button.active { background-color:#4B72FF; color:white; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    col_input, col_buttons = st.columns([0.85, 0.15])
+    with col_buttons:
+        kb = st.button("⌨", use_container_width=True)
+        mic = st.button("🎤", use_container_width=True)
         if kb: st.session_state.input_mode = "keyboard"
         if mic: st.session_state.input_mode = "voice"
 
-    with col2:
+    with col_input:
         if st.session_state.input_mode == "keyboard":
-            user_text = st.text_input(
-                "Type your question…",
-                key="text_input",
-                label_visibility="collapsed"
-            )
+            user_text = st.text_input("Type your question…", key="text_input", label_visibility="collapsed")
             if user_text and not st.session_state.sent:
                 st.session_state.history.append({"role": "user", "content": user_text})
                 reply = call_llm_as_patient(st.session_state.case, st.session_state.history)
                 audio_path = tts_mp3(reply)
                 st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
                 if "text_input" in st.session_state:
-                    del st.session_state["text_input"]   # ✅ Safe clear
+                    del st.session_state["text_input"]
                 st.session_state.sent = True
                 st.rerun()
             else:
@@ -332,7 +176,7 @@ else:
                     f.flush()
                     text_transcribed = speech_to_text(f.name)
                 if text_transcribed:
-                    st.session_state.history.append({"role": "user", "content": text_transcribed})
+                    st.session_state.history.append({"role": "user", "content": f"{text_transcribed}", "audio": f.name})
                     reply = call_llm_as_patient(st.session_state.case, st.session_state.history)
                     audio_path = tts_mp3(reply)
                     st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_path})
@@ -340,3 +184,21 @@ else:
                     st.rerun()
             else:
                 st.session_state.sent = False
+
+    # ==========================
+    # End Encounter + Download
+    # ==========================
+    def build_transcript():
+        buffer = io.StringIO()
+        buffer.write(f"Doctor–Patient Conversation Log\nPatient: {st.session_state.patient_name}\n\n")
+        for msg in st.session_state.history:
+            speaker = "Doctor" if msg["role"] == "user" else "Patient"
+            buffer.write(f"{speaker}: {msg['content']}\n")
+        return buffer.getvalue().encode("utf-8")
+
+    st.download_button(
+        label="💾 End Encounter & Download",
+        data=build_transcript(),
+        file_name=f"encounter_{st.session_state.patient_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+        mime="text/plain"
+    )
