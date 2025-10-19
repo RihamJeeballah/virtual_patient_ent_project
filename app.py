@@ -149,32 +149,67 @@ def match_case_by_name(case_name: str):
         if case_name.lower() in cf.stem.lower():
             return cf
     return None
-
-def extract_gender_from_avatar(avatar_path: str) -> str:
-    """Extract gender from avatar filename if it contains _male or _female"""
-    if "_female" in avatar_path.lower():
+def extract_gender_from_avatar(avatar_name: str) -> str:
+    """Extract gender from avatar filename."""
+    lower = avatar_name.lower()
+    if "_female" in lower:
         return "female"
-    if "_male" in avatar_path.lower():
+    if "_male" in lower:
         return "male"
     return None
+
+def extract_case_from_avatar(avatar_name: str) -> str:
+    """
+    Extract the core case name from avatar filename.
+    Example:
+    'blocked_nose_Wisam_female.png' -> 'blocked_nose'
+    'Ear_pain_sarah_female.png' -> 'ear_pain'
+    """
+    lower = avatar_name.lower().replace(".png", "")
+    parts = lower.split("_")
+    # remove the last part (gender) and the second to last part (patient name)
+    return "_".join(parts[:-2])
 
 def call_llm_as_patient(case: Dict, history: List[Dict[str, str]]) -> str:
     system_prompt = f"""
     You are role-playing as a **real human patient** in a clinical encounter with a doctor.
     Strictly follow the rules below to ensure a natural, realistic interaction:
 
-    1. Speak only as a patient in first person. Never narrate or explain instructions.
-    2. Do NOT ask the doctor questions like "What brings you here?" — the doctor asks, you answer.
-    3. Reveal information gradually — never all at once.
-    4. If asked vague questions, give short natural answers, not full history.
-    5. Express discomfort, hesitation, or pain where appropriate.
-    6. If asked something unrelated or unknown, say "I don't know" or "I can't remember".
-    7. Base your answers ONLY on the case details below.
+    1. **Stay fully in character as the patient.**
+       - Speak in the **first person** only (e.g., “I have pain in my right ear,” not “The patient has…”).
+       - Do not use medical jargon, structured notes, or clinical language.
+       - Use natural, conversational language that a layperson would use.
 
-    Case details:
+    2. **Reveal information gradually and appropriately.**
+       - Do **not give away all case details at once** — even if the doctor asks an open question.
+       - Only disclose what a real patient might say at that stage of the encounter.
+       - Keep your first answer brief and realistic. If the doctor probes further, provide more details step by step.
+       - If the question is vague or incomplete, give a **limited but natural** answer and let the doctor guide the conversation.
+
+    3. **Be realistic about what a patient remembers or understands.**
+       - If asked something unrelated to the case file or something a real patient wouldn’t know, say politely:
+         - “I don’t know,” or “I can’t remember,” or “I’m not sure what you mean.”
+       - Do not invent information outside the provided case.
+
+    4. **Use natural tone and emotion.**
+       - Reflect the patient’s discomfort, pain, or anxiety realistically.
+       - Use hesitation, emotion, or uncertainty where appropriate (e.g., “Um… it hurts a lot when I touch it,” or “I think it started a few days ago, I’m not exactly sure.”).
+       - Do not sound like an AI or a narrator.
+
+    5. **Respond in short, patient-like utterances.**
+       - Limit each response to **one or two sentences** unless the question clearly calls for more.
+       - If the doctor asks “Tell me more,” provide **only a bit more**, not the entire history at once.
+
+    6. **Context restriction.**
+       - Do not reference or learn from any previous conversation or external knowledge.
+       - Base your responses **only** on the case information below.
+
+    Background case details:
     {json.dumps(case, indent=2)}
     """
+
     system = {"role": "system", "content": system_prompt}
+
     msgs = [system] + [{"role": m["role"], "content": m["content"]} for m in history[-20:]]
 
     resp = client.chat.completions.create(
@@ -186,9 +221,11 @@ def call_llm_as_patient(case: Dict, history: List[Dict[str, str]]) -> str:
     return resp.choices[0].message.content.strip()
 
 def tts_mp3(text: str, gender: str = None) -> str:
-    voice = "alloy"  # default neutral/male
+    # Choose voice based on gender
+    voice = "alloy"  # default (neutral / male tone)
     if gender and gender.lower() == "female":
-        voice = "verse"  # female tone
+        voice = "verse"  # female-sounding voice
+
     response = client.audio.speech.create(
         model="gpt-4o-mini-tts",
         voice=voice,
@@ -216,7 +253,6 @@ if "case_name" not in st.session_state: st.session_state.case_name = None
 if "history" not in st.session_state: st.session_state.history = []
 if "input_mode" not in st.session_state: st.session_state.input_mode = "keyboard"
 if "pending_message" not in st.session_state: st.session_state.pending_message = None
-if "gender" not in st.session_state: st.session_state.gender = None
 
 # ==========================
 # PATIENT SELECTION
@@ -226,27 +262,33 @@ if not st.session_state.case:
     avatars = [a for a in sorted(AVATAR_DIR.glob("*.png")) if a.stem.lower() != "logo"]
     num_cols = 4
     cols = st.columns(num_cols)
+
     for i, avatar in enumerate(avatars):
-        parts = avatar.stem.split("_")
-        case_name = " ".join(parts[:-1]).title()
-        patient_name = parts[-2].title() if len(parts) > 2 else parts[-1].title()
+        avatar_name = avatar.stem
+        gender = extract_gender_from_avatar(avatar_name)
+        case_key = extract_case_from_avatar(avatar_name)
+        parts = avatar_name.split("_")
+        patient_name = parts[-2].title()
+        case_display = " ".join(parts[:-2]).replace("_", " ").title()
+
         col = cols[i % num_cols]
         with col:
-            if st.button(f"🧑 {patient_name}\n🩺 {case_name}", key=f"select_{avatar.stem}"):
-                matched_case = match_case_by_name("_".join(parts[:-1]))
+            if st.button(f"🧑 {patient_name}\n🩺 {case_display}", key=f"select_{avatar_name}"):
+                matched_case = match_case_by_name(case_key)
                 if matched_case:
                     st.session_state.case = load_case(matched_case)
                     st.session_state.case_name = matched_case.stem
                     st.session_state.avatar_path = str(avatar)
                     st.session_state.patient_name = patient_name
-                    st.session_state.gender = extract_gender_from_avatar(str(avatar))
+                    st.session_state.gender = gender
                     st.session_state.history = []
                     st.rerun()
+
             st.markdown(f"""
                 <div class='avatar-card'>
                     <img src='data:image/png;base64,{base64.b64encode(open(str(avatar), "rb").read()).decode()}'>
                     <div class='avatar-name'>{patient_name}</div>
-                    <div class='avatar-case'>{case_name}</div>
+                    <div class='avatar-case'>{case_display}</div>
                 </div>
             """, unsafe_allow_html=True)
 
@@ -298,9 +340,11 @@ else:
             chatBox.scrollTop = chatBox.scrollHeight;
         }
     }
+
     window.addEventListener('load', () => {
         setTimeout(scrollToBottom, 500);
     });
+
     const chatBox = window.parent.document.getElementById('chatBox');
     if (chatBox) {
         const observer = new MutationObserver(() => scrollToBottom());
@@ -309,12 +353,14 @@ else:
     </script>
     """, unsafe_allow_html=True)
 
+
+
     # 🧠 Process pending message
     if st.session_state.pending_message:
         msg = st.session_state.pending_message
         st.session_state.pending_message = None
         reply = call_llm_as_patient(st.session_state.case, st.session_state.history)
-        audio_file = tts_mp3(reply, st.session_state.gender)
+        audio_file = tts_mp3(reply)
         st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_file})
         st.rerun()
 
@@ -334,18 +380,26 @@ else:
                 st.rerun()
         else:
             audio_data = st.audio_input("Record your question", label_visibility="collapsed")
+
+            # 👇 Automatically send after recording ends — but validate first
             if audio_data:
                 audio_bytes = audio_data.read()
+
+                # ✅ Check it's not empty or too short (threshold 500 bytes)
                 if audio_bytes and len(audio_bytes) > 500:
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
                         f.write(audio_bytes)
                         f.flush()
                         path = f.name
+
                     transcript = speech_to_text(path).strip()
+
+                    # ✅ Only send if transcription is not empty
                     if transcript:
                         st.session_state.history.append({"role": "user", "content": transcript, "audio": path})
                         st.session_state.pending_message = transcript
                         st.rerun()
+
 
     def build_transcript_file():
         buf = io.StringIO()
