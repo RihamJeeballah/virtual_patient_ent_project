@@ -1,4 +1,4 @@
-import os, re, json, html, base64, tempfile, io
+import os, re, json, html, base64, tempfile, io, threading
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
@@ -107,7 +107,7 @@ h1,h2,h3 {font-family: 'Segoe UI', sans-serif;}
     overflow-y:auto;
     box-shadow:0 2px 8px rgba(0,0,0,0.05);
     display:flex;
-    flex-direction:column-reverse; /* newest at bottom, start view at latest */
+    flex-direction:column-reverse; /* newest at bottom */
     padding: 14px;
 }
 
@@ -130,9 +130,9 @@ h1,h2,h3 {font-family: 'Segoe UI', sans-serif;}
     background:white;padding:20px;border-radius:15px;
     box-shadow:0 2px 6px rgba(0,0,0,0.05);margin-bottom:15px;
 }
-
 .chat-header-card img {
-    border-radius:50%;width:150px;height:150px;object-fit:cover;
+    border-radius:15px; /* rectangle */
+    width:170px;height:170px;object-fit:cover;
 }
 
 .icon-btn {
@@ -214,18 +214,15 @@ if "patient_name" not in st.session_state: st.session_state.patient_name = None
 if "case_name" not in st.session_state: st.session_state.case_name = None
 if "history" not in st.session_state: st.session_state.history = []
 if "input_mode" not in st.session_state: st.session_state.input_mode = "keyboard"
-if "sent" not in st.session_state: st.session_state.sent = False
 
 # ==========================
-# 🧍 PATIENT SELECTION PAGE  (unchanged except for styles)
+# 🧍 PATIENT SELECTION PAGE
 # ==========================
 if not st.session_state.case:
     st.subheader("🩺 Select a Patient Case")
-
     avatars = [a for a in sorted(AVATAR_DIR.glob("*.png")) if a.stem.lower() != "logo"]
     num_cols = 4
     cols = st.columns(num_cols)
-
     for i, avatar in enumerate(avatars):
         parts = avatar.stem.split("_")
         case_name = " ".join(parts[:-1]).title()
@@ -250,13 +247,12 @@ if not st.session_state.case:
             """, unsafe_allow_html=True)
 
 # ==========================
-# 💬 CHAT PAGE  (improved only here)
+# 💬 CHAT PAGE
 # ==========================
 else:
-    # Back
     st.button("⬅️ Back to Patients", on_click=lambda: (st.session_state.update({"case": None, "history": []}), st.rerun()))
 
-    # Enlarged patient header card with name underneath
+    # Header rectangle image
     st.markdown(f"""
     <div class="chat-header-card">
         <img src='data:image/png;base64,{base64.b64encode(open(st.session_state.avatar_path, "rb").read()).decode()}'>
@@ -267,27 +263,18 @@ else:
     </div>
     """, unsafe_allow_html=True)
 
-    # Base64 for patient small icon
     with open(st.session_state.avatar_path, "rb") as img_f:
         patient_icon_b64 = base64.b64encode(img_f.read()).decode()
 
-    # Chat view (newest at bottom). We render reversed list and use column-reverse.
+    # Chat messages
     chat_html = "<div class='chat' id='chatBox'>"
     for m in reversed(st.session_state.history):
-        # Build message bubble
         if m["role"] == "user":
-            # Doctor bubble
-            chat_html += f"<div class='bubble doctor'><span class='role'>👨‍⚕️</span>{esc(m['content'])}"
-            if "audio" in m:
-                with open(m["audio"], "rb") as f:
-                    b64 = base64.b64encode(f.read()).decode()
-                chat_html += f"<audio controls style='display:block;margin-top:4px;'><source src='data:audio/mp3;base64,{b64}' type='audio/mp3'></audio>"
-            chat_html += "</div>"
+            chat_html += f"<div class='bubble doctor'><span class='role'>👨‍⚕️</span>{esc(m['content'])}</div>"
         else:
-            # Patient bubble with patient photo icon
             chat_html += f"""
             <div class='bubble patient'>
-                <img src='data:image/png;base64,{patient_icon_b64}' style='width:26px;height:26px;border-radius:50%;vertical-align:middle;margin-right:8px;'>
+                <img src='data:image/png;base64,{patient_icon_b64}' style='width:26px;height:26px;border-radius:6px;vertical-align:middle;margin-right:8px;'>
                 {esc(m['content'])}
             """
             if "audio" in m:
@@ -296,69 +283,44 @@ else:
                 chat_html += f"<audio controls style='display:block;margin-top:4px;'><source src='data:audio/mp3;base64,{b64}' type='audio/mp3'></audio>"
             chat_html += "</div>"
     chat_html += "</div>"
-    # Ensure we start at latest (because column-reverse shows bottom first)
-    chat_html += "<script>const c=document.getElementById('chatBox'); if(c){c.scrollTop=0;}</script>"
     st.markdown(chat_html, unsafe_allow_html=True)
 
     # ==========================
-    # Input Bar (icons close, enter to send)
+    # Input bar
     # ==========================
     left_icons, input_col = st.columns([0.08, 0.92])
     with left_icons:
-        # Two small buttons very close to the input
         kb = st.button("⌨", key="kb_btn", help="Keyboard", use_container_width=True)
         mic = st.button("🎤", key="mic_btn", help="Mic", use_container_width=True)
         if kb: st.session_state.input_mode = "keyboard"
         if mic: st.session_state.input_mode = "voice"
 
+    def handle_patient_reply():
+        reply = call_llm_as_patient(st.session_state.case, st.session_state.history)
+        audio = tts_mp3(reply)
+        st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio})
+        st.rerun()
+
     with input_col:
         if st.session_state.input_mode == "keyboard":
-            # Enter sends automatically
             user_text = st.text_input("Type your question…", key="text_input", label_visibility="collapsed")
-            if user_text and not st.session_state.sent:
-                # Doctor text message
+            if user_text:
                 st.session_state.history.append({"role": "user", "content": user_text})
-
-                # Patient reply: voice + transcript
-                reply = call_llm_as_patient(st.session_state.case, st.session_state.history)
-                patient_audio = tts_mp3(reply)
-                st.session_state.history.append({"role": "assistant", "content": reply, "audio": patient_audio})
-
-                # Clear input safely and refresh
                 if "text_input" in st.session_state:
-                    del st.session_state["text_input"]
-                st.session_state.sent = True
+                    del st.session_state["text_input"]  # 🧼 instant clear input
+                threading.Thread(target=handle_patient_reply, daemon=True).start()
                 st.rerun()
-            else:
-                st.session_state.sent = False
-
         else:
-            # Voice mode
             audio_data = st.audio_input("Record your question", label_visibility="collapsed")
-            if audio_data and not st.session_state.sent:
-                # Persist doctor voice to temp file and transcribe
+            if audio_data:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
                     f.write(audio_data.read())
                     f.flush()
-                    doctor_voice_path = f.name
-                transcript = speech_to_text(doctor_voice_path) if doctor_voice_path else ""
-
-                # Show doctor voice + transcript
-                st.session_state.history.append({
-                    "role": "user",
-                    "content": transcript if transcript else "(voice message)",
-                    "audio": doctor_voice_path
-                })
-
-                # Patient reply: voice + transcript
-                reply = call_llm_as_patient(st.session_state.case, st.session_state.history)
-                patient_audio = tts_mp3(reply)
-                st.session_state.history.append({"role": "assistant", "content": reply, "audio": patient_audio})
-
-                st.session_state.sent = True
+                    path = f.name
+                transcript = speech_to_text(path)
+                st.session_state.history.append({"role": "user", "content": transcript, "audio": path})
+                threading.Thread(target=handle_patient_reply, daemon=True).start()
                 st.rerun()
-            else:
-                st.session_state.sent = False
 
     # ==========================
     # End Encounter + Download
@@ -367,7 +329,6 @@ else:
         buf = io.StringIO()
         buf.write(f"Sultan Qaboos University – Clinical Skills Lab\n")
         buf.write(f"Encounter Transcript\nPatient: {st.session_state.patient_name}\nDate: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n")
-        # Oldest to newest
         for msg in st.session_state.history:
             speaker = "Doctor" if msg["role"] == "user" else "Patient"
             buf.write(f"{speaker}: {msg['content']}\n")
