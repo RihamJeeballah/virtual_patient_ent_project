@@ -192,8 +192,8 @@ def call_llm_as_patient(case: Dict, history: List[Dict[str, str]]) -> str:
     return resp.choices[0].message.content.strip()
 
 def tts_mp3(text: str) -> str:
-    tts = gTTS(text=text, lang="en")
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+    tts = gTTS(text=text, lang="en")
     tts.save(tmp.name)
     return tmp.name
 
@@ -278,9 +278,12 @@ else:
                 {esc(m['content'])}
             """
             if "audio" in m:
-                with open(m["audio"], "rb") as f:
-                    b64 = base64.b64encode(f.read()).decode()
-                chat_html += f"<audio controls autoplay style='display:block;margin-top:4px;'><source src='data:audio/mp3;base64,{b64}' type='audio/mp3'></audio>"
+                try:
+                    with open(m["audio"], "rb") as f:
+                        b64 = base64.b64encode(f.read()).decode()
+                    chat_html += f"<audio controls autoplay style='display:block;margin-top:4px;'><source src='data:audio/mp3;base64,{b64}' type='audio/mp3'></audio>"
+                except FileNotFoundError:
+                    pass
             chat_html += "</div>"
     chat_html += "</div>"
     st.markdown(chat_html, unsafe_allow_html=True)
@@ -296,9 +299,10 @@ else:
         if mic: st.session_state.input_mode = "voice"
 
     def handle_patient_reply():
+        # reply and generate audio in background
         reply = call_llm_as_patient(st.session_state.case, st.session_state.history)
-        audio = tts_mp3(reply)
-        st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio})
+        audio_file = tts_mp3(reply)
+        st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_file})
         st.rerun()
 
     with input_col:
@@ -308,8 +312,7 @@ else:
                 st.session_state.history.append({"role": "user", "content": user_text})
                 if "text_input" in st.session_state:
                     del st.session_state["text_input"]
-                # LLM reply immediately
-                handle_patient_reply()
+                threading.Thread(target=handle_patient_reply, daemon=True).start()
                 st.rerun()
         else:
             audio_data = st.audio_input("Record your question", label_visibility="collapsed")
@@ -320,8 +323,7 @@ else:
                     path = f.name
                 transcript = speech_to_text(path)
                 st.session_state.history.append({"role": "user", "content": transcript, "audio": path})
-                # LLM reply immediately
-                handle_patient_reply()
+                threading.Thread(target=handle_patient_reply, daemon=True).start()
                 st.rerun()
 
     # ==========================
