@@ -28,16 +28,18 @@ LOGS_DIR.mkdir(exist_ok=True)
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 # ==========================
-# 🏫 HEADER BANNER
+# 🏫 HEADER BANNER (unchanged)
 # ==========================
 LOGO_PATH = "logo.png"
 st.markdown(f"""
 <style>
+/* Remove default header/padding */
 div[data-testid="stDecoration"] {{ display: none; }}
 header {{ display: none; }}
 .block-container {{ padding-top: 0rem; margin-top: 0rem; }}
 section.main {{ padding-top: 0rem; margin-top: 0rem; }}
 
+/* Banner */
 .header-banner {{
     width: 100vw;
     margin-left: calc(-50vw + 50%);
@@ -78,6 +80,7 @@ st.markdown("""
 body, .block-container {background-color: #f8f9fb;}
 h1,h2,h3 {font-family: 'Segoe UI', sans-serif;}
 
+/* Cards on first page (unchanged) */
 .avatar-card {
     display: flex;
     flex-direction: column;
@@ -100,6 +103,7 @@ h1,h2,h3 {font-family: 'Segoe UI', sans-serif;}
 .avatar-name { font-weight: 700; margin-top: 8px; font-size: 16px; color: #333; }
 .avatar-case { color: #666; font-size: 14px; }
 
+/* Chat area */
 .chat {
     background:#FFFFFF;
     border-radius:14px;
@@ -107,10 +111,9 @@ h1,h2,h3 {font-family: 'Segoe UI', sans-serif;}
     overflow-y:auto;
     box-shadow:0 2px 8px rgba(0,0,0,0.05);
     display:flex;
-    flex-direction:column-reverse; /* newest at bottom */
+    flex-direction:column-reverse;  /* newest at bottom and visible */
     padding: 14px;
 }
-
 .bubble {
     padding:10px 14px;
     border-radius:18px;
@@ -123,24 +126,18 @@ h1,h2,h3 {font-family: 'Segoe UI', sans-serif;}
 .doctor { background:#eef1f5; text-align:left; align-self:flex-start; }
 .patient { background:#e7f5ee; text-align:left; align-self:flex-end; }
 
-.role { font-weight:600; margin-right:6px; }
-
+/* Patient header card (second page top) */
 .chat-header-card {
     display:flex;flex-direction:column;align-items:center;gap:10px;
     background:white;padding:20px;border-radius:15px;
     box-shadow:0 2px 6px rgba(0,0,0,0.05);margin-bottom:15px;
 }
 .chat-header-card img {
-    border-radius:15px; /* rectangle */
+    border-radius:15px;         /* rectangle look */
     width:170px;height:170px;object-fit:cover;
 }
 
-.icon-btn {
-    background:white;border:1px solid #ccc;border-radius:10px;cursor:pointer;
-    font-size:18px; padding:8px 10px;
-}
-.icon-btn.active { background:#4B72FF; color:white; border-color:#4B72FF; }
-
+/* Text input look */
 [data-baseweb="input"] input {
     border-radius: 8px !important;
     padding: 12px 12px;
@@ -172,6 +169,7 @@ def match_case_by_name(case_name: str):
     return None
 
 def call_llm_as_patient(case: Dict, history: List[Dict[str, str]]) -> str:
+    """LLM reply text based on case + short context."""
     system = {
         "role": "system",
         "content": (
@@ -192,6 +190,7 @@ def call_llm_as_patient(case: Dict, history: List[Dict[str, str]]) -> str:
     return resp.choices[0].message.content.strip()
 
 def tts_mp3(text: str) -> str:
+    """Generate a UNIQUE mp3 per text and return its absolute path."""
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
     tts = gTTS(text=text, lang="en")
     tts.save(tmp.name)
@@ -214,15 +213,18 @@ if "patient_name" not in st.session_state: st.session_state.patient_name = None
 if "case_name" not in st.session_state: st.session_state.case_name = None
 if "history" not in st.session_state: st.session_state.history = []
 if "input_mode" not in st.session_state: st.session_state.input_mode = "keyboard"
+if "is_replying" not in st.session_state: st.session_state.is_replying = False
 
 # ==========================
-# 🧍 PATIENT SELECTION PAGE
+# 🧍 PATIENT SELECTION PAGE (unchanged UI)
 # ==========================
 if not st.session_state.case:
     st.subheader("🩺 Select a Patient Case")
+
     avatars = [a for a in sorted(AVATAR_DIR.glob("*.png")) if a.stem.lower() != "logo"]
     num_cols = 4
     cols = st.columns(num_cols)
+
     for i, avatar in enumerate(avatars):
         parts = avatar.stem.split("_")
         case_name = " ".join(parts[:-1]).title()
@@ -247,12 +249,13 @@ if not st.session_state.case:
             """, unsafe_allow_html=True)
 
 # ==========================
-# 💬 CHAT PAGE
+# 💬 CHAT PAGE (improved reply speed + correct audio)
 # ==========================
 else:
+    # Back button
     st.button("⬅️ Back to Patients", on_click=lambda: (st.session_state.update({"case": None, "history": []}), st.rerun()))
 
-    # Header rectangle image
+    # Patient header with larger rectangle image + name
     st.markdown(f"""
     <div class="chat-header-card">
         <img src='data:image/png;base64,{base64.b64encode(open(st.session_state.avatar_path, "rb").read()).decode()}'>
@@ -263,20 +266,22 @@ else:
     </div>
     """, unsafe_allow_html=True)
 
+    # Small icon for patient bubbles = same avatar
     with open(st.session_state.avatar_path, "rb") as img_f:
         patient_icon_b64 = base64.b64encode(img_f.read()).decode()
 
-    # Chat messages
+    # Render chat (latest at bottom)
     chat_html = "<div class='chat' id='chatBox'>"
     for m in reversed(st.session_state.history):
         if m["role"] == "user":
-            chat_html += f"<div class='bubble doctor'><span class='role'>👨‍⚕️</span>{esc(m['content'])}</div>"
+            chat_html += f"<div class='bubble doctor'><span style='font-weight:600;margin-right:6px;'>👨‍⚕️</span>{esc(m['content'])}</div>"
         else:
             chat_html += f"""
             <div class='bubble patient'>
                 <img src='data:image/png;base64,{patient_icon_b64}' style='width:26px;height:26px;border-radius:6px;vertical-align:middle;margin-right:8px;'>
                 {esc(m['content'])}
             """
+            # Each assistant message uses its OWN audio path saved with that message
             if "audio" in m:
                 try:
                     with open(m["audio"], "rb") as f:
@@ -288,8 +293,26 @@ else:
     chat_html += "</div>"
     st.markdown(chat_html, unsafe_allow_html=True)
 
+    # ----- FAST background reply (no UI freeze) -----
+    def handle_patient_reply():
+        try:
+            reply = call_llm_as_patient(st.session_state.case, st.session_state.history)
+            audio_file = tts_mp3(reply)                # UNIQUE audio per reply
+            st.session_state.history.append({
+                "role": "assistant",
+                "content": reply,
+                "audio": audio_file
+            })
+        except Exception as e:
+            st.session_state.history.append({
+                "role": "assistant",
+                "content": f"⚠️ Error generating reply: {e}"
+            })
+        st.session_state.is_replying = False
+        st.rerun()
+
     # ==========================
-    # Input bar
+    # Input bar (Enter sends + clears instantly)
     # ==========================
     left_icons, input_col = st.columns([0.08, 0.92])
     with left_icons:
@@ -298,31 +321,29 @@ else:
         if kb: st.session_state.input_mode = "keyboard"
         if mic: st.session_state.input_mode = "voice"
 
-    def handle_patient_reply():
-        # reply and generate audio in background
-        reply = call_llm_as_patient(st.session_state.case, st.session_state.history)
-        audio_file = tts_mp3(reply)
-        st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_file})
-        st.rerun()
-
     with input_col:
         if st.session_state.input_mode == "keyboard":
             user_text = st.text_input("Type your question…", key="text_input", label_visibility="collapsed")
-            if user_text:
+            if user_text and not st.session_state.is_replying:
+                # 1) Add doctor's message instantly
                 st.session_state.history.append({"role": "user", "content": user_text})
+                # 2) Clear input immediately
                 if "text_input" in st.session_state:
                     del st.session_state["text_input"]
+                # 3) Kick off background LLM reply
+                st.session_state.is_replying = True
                 threading.Thread(target=handle_patient_reply, daemon=True).start()
                 st.rerun()
         else:
             audio_data = st.audio_input("Record your question", label_visibility="collapsed")
-            if audio_data:
+            if audio_data and not st.session_state.is_replying:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
                     f.write(audio_data.read())
                     f.flush()
                     path = f.name
                 transcript = speech_to_text(path)
                 st.session_state.history.append({"role": "user", "content": transcript, "audio": path})
+                st.session_state.is_replying = True
                 threading.Thread(target=handle_patient_reply, daemon=True).start()
                 st.rerun()
 
@@ -331,7 +352,7 @@ else:
     # ==========================
     def build_transcript_file():
         buf = io.StringIO()
-        buf.write(f"Sultan Qaboos University – Clinical Skills Lab\n")
+        buf.write("Sultan Qaboos University – Clinical Skills Lab\n")
         buf.write(f"Encounter Transcript\nPatient: {st.session_state.patient_name}\nDate: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n")
         for msg in st.session_state.history:
             speaker = "Doctor" if msg["role"] == "user" else "Patient"
