@@ -297,11 +297,10 @@ else:
 
     with input_col:
         if st.session_state.input_mode == "keyboard":
-            user_text = st.text_input("Type your question…", key="text_input", label_visibility="collapsed")
+            # 👇 st.chat_input clears automatically when you press Enter
+            user_text = st.chat_input("Type your question…")
             if user_text and not st.session_state.is_replying:
                 st.session_state.history.append({"role": "user", "content": user_text})
-                if "text_input" in st.session_state:
-                    del st.session_state["text_input"]
                 st.session_state.is_replying = True
                 threading.Thread(target=handle_patient_reply, daemon=True).start()
                 st.rerun()
@@ -317,6 +316,7 @@ else:
                 st.session_state.is_replying = True
                 threading.Thread(target=handle_patient_reply, daemon=True).start()
                 st.rerun()
+
 
     def build_transcript_file():
         buf = io.StringIO()
