@@ -273,11 +273,17 @@ else:
     chat_html += "</div>"
     st.markdown(chat_html, unsafe_allow_html=True)
 
-    # Auto scroll
+    # ✅ Auto scroll to latest message
     st.markdown("""
     <script>
-        var chatBox = window.parent.document.getElementById('chatBox');
-        if (chatBox) { chatBox.scrollTop = chatBox.scrollHeight; }
+    const chatBox = window.parent.document.getElementById('chatBox');
+    if (chatBox) {
+      const observer = new MutationObserver(() => {
+        chatBox.scrollTop = chatBox.scrollHeight;
+      });
+      observer.observe(chatBox, { childList: true, subtree: true });
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
     </script>
     """, unsafe_allow_html=True)
 
@@ -303,13 +309,11 @@ else:
         if st.session_state.input_mode == "keyboard":
             user_text = st.chat_input("Type your question…")
             if user_text:
-                # 👇 Add message immediately
                 st.session_state.history.append({"role": "user", "content": user_text})
-                st.rerun()
-                # 👇 Trigger LLM reply
                 if not st.session_state.is_replying:
                     st.session_state.is_replying = True
                     threading.Thread(target=handle_patient_reply, daemon=True).start()
+                st.rerun()
 
         else:
             audio_data = st.audio_input("Record your question", label_visibility="collapsed")
@@ -320,10 +324,10 @@ else:
                     path = f.name
                 transcript = speech_to_text(path)
                 st.session_state.history.append({"role": "user", "content": transcript, "audio": path})
-                st.rerun()
                 if not st.session_state.is_replying:
                     st.session_state.is_replying = True
                     threading.Thread(target=handle_patient_reply, daemon=True).start()
+                st.rerun()
 
     def build_transcript_file():
         buf = io.StringIO()
