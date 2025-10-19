@@ -262,34 +262,44 @@ else:
     chat_html += "</div>"
     st.markdown(chat_html, unsafe_allow_html=True)
 
-    # ✅ Final Auto Scroll Fix — works reliably after each message
+    # ✅ FINAL ROBUST AUTO-SCROLL FIX
     st.markdown("""
     <script>
     function scrollToBottom() {
-    const chatBox = window.parent.document.getElementById('chatBox');
-    if (chatBox) {
-        chatBox.scrollTop = chatBox.scrollHeight;
-    }
-    }
-
-    // Scroll after load (extra delay ensures Streamlit fully renders)
-    window.addEventListener('load', () => {
-    setTimeout(scrollToBottom, 800);
-    });
-
-    // Also scroll after every small DOM change
-    const chatBox = window.parent.document.getElementById('chatBox');
-    if (chatBox) {
-    const observer = new MutationObserver(() => {
-        setTimeout(scrollToBottom, 300);
-    });
-    observer.observe(chatBox, { childList: true, subtree: true });
+        const chatBox = window.parent.document.getElementById('chatBox');
+        if (chatBox) {
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
     }
 
-    // Force scroll again periodically for safety (e.g., audio loads late)
-    setInterval(scrollToBottom, 1200);
+    // ✅ Try to find the chat box multiple times (for delayed rendering)
+    let attempts = 0;
+    const intervalId = setInterval(() => {
+        const chatBox = window.parent.document.getElementById('chatBox');
+        if (chatBox || attempts > 20) {
+            clearInterval(intervalId);
+            if (chatBox) {
+                scrollToBottom();
+                // Observe DOM changes after initial load
+                const observer = new MutationObserver(() => {
+                    setTimeout(scrollToBottom, 200);
+                });
+                observer.observe(chatBox, { childList: true, subtree: true });
+
+                // Also scroll periodically after new messages appear
+                let scrollBoost = 0;
+                const boostInterval = setInterval(() => {
+                    scrollToBottom();
+                    scrollBoost++;
+                    if (scrollBoost > 10) clearInterval(boostInterval);
+                }, 500);
+            }
+        }
+        attempts++;
+    }, 300);
     </script>
     """, unsafe_allow_html=True)
+
 
 
 
