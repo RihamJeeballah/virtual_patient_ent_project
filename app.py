@@ -280,7 +280,7 @@ else:
             if "audio" in m:
                 with open(m["audio"], "rb") as f:
                     b64 = base64.b64encode(f.read()).decode()
-                chat_html += f"<audio controls style='display:block;margin-top:4px;'><source src='data:audio/mp3;base64,{b64}' type='audio/mp3'></audio>"
+                chat_html += f"<audio controls autoplay style='display:block;margin-top:4px;'><source src='data:audio/mp3;base64,{b64}' type='audio/mp3'></audio>"
             chat_html += "</div>"
     chat_html += "</div>"
     st.markdown(chat_html, unsafe_allow_html=True)
@@ -307,8 +307,9 @@ else:
             if user_text:
                 st.session_state.history.append({"role": "user", "content": user_text})
                 if "text_input" in st.session_state:
-                    del st.session_state["text_input"]  # 🧼 instant clear input
-                threading.Thread(target=handle_patient_reply, daemon=True).start()
+                    del st.session_state["text_input"]
+                # LLM reply immediately
+                handle_patient_reply()
                 st.rerun()
         else:
             audio_data = st.audio_input("Record your question", label_visibility="collapsed")
@@ -319,7 +320,8 @@ else:
                     path = f.name
                 transcript = speech_to_text(path)
                 st.session_state.history.append({"role": "user", "content": transcript, "audio": path})
-                threading.Thread(target=handle_patient_reply, daemon=True).start()
+                # LLM reply immediately
+                handle_patient_reply()
                 st.rerun()
 
     # ==========================
