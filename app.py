@@ -216,19 +216,29 @@ def call_llm_as_patient(case: Dict, history: List[Dict[str, str]]) -> str:
     return resp.choices[0].message.content.strip()
 
 def tts_mp3(text: str, gender: str = None) -> str:
-    # ✅ Choose voice based on gender
-    voice = "alloy"  # default (male / neutral)
-    if gender and gender.lower() == "female":
-        voice = "verse"  # female-sounding voice
+    """
+    Generate MP3 speech for the given text with gender-specific voice.
+    - Female => softer, feminine voice
+    - Male   => deeper masculine voice
+    """
+    if gender is not None:
+        gender = gender.lower().strip()
 
-    # ✅ Request TTS from OpenAI
+    # ✅ Explicit gender-to-voice mapping
+    if gender == "female":
+        voice = "verse"     # feminine tone
+    elif gender == "male":
+        voice = "charlie"   # masculine tone
+    else:
+        voice = "charlie"   # default fallback to male tone
+
+    # ✅ Generate speech
     response = client.audio.speech.create(
         model="gpt-4o-mini-tts",
         voice=voice,
         input=text
     )
 
-    # ✅ Save output properly (no deprecated method)
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
     with open(tmp.name, "wb") as f:
         f.write(response.read())
@@ -264,7 +274,7 @@ if not st.session_state.case:
 
     for i, avatar in enumerate(avatars):
         avatar_name = avatar.stem
-        gender = extract_gender_from_avatar(avatar_name)
+        gender = extract_gender_from_avatar(avatar_name)  # ✅ female / male / None
         case_key = extract_case_from_avatar(avatar_name)
         parts = avatar_name.split("_")
         patient_name = parts[-2].title()
@@ -273,19 +283,23 @@ if not st.session_state.case:
         col = cols[i % num_cols]
         with col:
             if st.button(f"🧑 {patient_name}\n🩺 {case_display}", key=f"select_{avatar_name}"):
+
                 matched_case = match_case_by_name(case_key)
                 if matched_case:
                     st.session_state.case = load_case(matched_case)
                     st.session_state.case_name = matched_case.stem
                     st.session_state.avatar_path = str(avatar)
                     st.session_state.patient_name = patient_name
-                    st.session_state.gender = gender
+
+                    # ✅ Store gender in session state
+                    st.session_state.gender = gender if gender else "male"  # fallback
+
                     st.session_state.history = []
                     st.rerun()
 
             st.markdown(f"""
                 <div class='avatar-card'>
-                    <img src='data:image/png;base64,{base64.b64encode(open(str(avatar), "rb").read()).decode()}'>
+                    <img src='data:image/png;base64,{base64.b64encode(open(str(avatar), "rb").read()).decode()}' />
                     <div class='avatar-name'>{patient_name}</div>
                     <div class='avatar-case'>{case_display}</div>
                 </div>
