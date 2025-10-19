@@ -150,11 +150,16 @@ def match_case_by_name(case_name: str):
             return cf
     return None
 def extract_gender_from_avatar(avatar_name: str) -> str:
-    """Extract gender from avatar filename."""
-    lower = avatar_name.lower()
-    if "_female" in lower:
+    """
+    Extract gender from avatar filename reliably.
+    Example:
+    blocked_nose_Wisam_female.png -> female
+    blurred_vision_Salem_male.png -> male
+    """
+    lower = avatar_name.lower().strip()
+    if lower.endswith("_female"):
         return "female"
-    if "_male" in lower:
+    if lower.endswith("_male"):
         return "male"
     return None
 
@@ -216,23 +221,13 @@ def call_llm_as_patient(case: Dict, history: List[Dict[str, str]]) -> str:
     return resp.choices[0].message.content.strip()
 
 def tts_mp3(text: str, gender: str = None) -> str:
-    """
-    Generate MP3 speech for the given text with gender-specific voice.
-    - Female => softer, feminine voice
-    - Male   => deeper masculine voice
-    """
-    if gender is not None:
-        gender = gender.lower().strip()
+    gender = (gender or "").strip().lower()
 
-    # ✅ Explicit gender-to-voice mapping
+    # ✅ Explicit mapping
+    voice = "charlie"  # default to male
     if gender == "female":
-        voice = "verse"     # feminine tone
-    elif gender == "male":
-        voice = "charlie"   # masculine tone
-    else:
-        voice = "charlie"   # default fallback to male tone
+        voice = "verse"
 
-    # ✅ Generate speech
     response = client.audio.speech.create(
         model="gpt-4o-mini-tts",
         voice=voice,
@@ -243,6 +238,7 @@ def tts_mp3(text: str, gender: str = None) -> str:
     with open(tmp.name, "wb") as f:
         f.write(response.read())
     return tmp.name
+
 
 def speech_to_text(audio_file) -> str:
     with open(audio_file, "rb") as f:
@@ -262,6 +258,8 @@ if "case_name" not in st.session_state: st.session_state.case_name = None
 if "history" not in st.session_state: st.session_state.history = []
 if "input_mode" not in st.session_state: st.session_state.input_mode = "keyboard"
 if "pending_message" not in st.session_state: st.session_state.pending_message = None
+if "gender" not in st.session_state: st.session_state.gender = "male"  # default
+
 # ==========================
 # PATIENT SELECTION
 # ==========================
@@ -274,6 +272,8 @@ if not st.session_state.case:
     for i, avatar in enumerate(avatars):
         avatar_name = avatar.stem
         gender = extract_gender_from_avatar(avatar_name)  # ✅ female / male / None
+        st.write(f"DEBUG → Avatar: {avatar_name}, Gender detected: {gender}")
+
         case_key = extract_case_from_avatar(avatar_name)
         parts = avatar_name.split("_")
         patient_name = parts[-2].title()
