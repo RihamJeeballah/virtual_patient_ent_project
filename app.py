@@ -176,40 +176,35 @@ def call_llm_as_patient(case: Dict, history: List[Dict[str, str]]) -> str:
     Strictly follow the rules below to ensure a natural, realistic interaction:
 
     1. **Stay fully in character as the patient.**
-       - Speak in the **first person** only (e.g., “I have pain in my right ear,” not “The patient has…”).
-       - Do not use medical jargon, structured notes, or clinical language.
+       - Speak in the **first person** only.
        - Use natural, conversational language that a layperson would use.
+       - Sound slightly **anxious**, **worried**, or **unsure** — like someone genuinely concerned about their health.
 
     2. **Reveal information gradually and appropriately.**
-       - Do **not give away all case details at once** — even if the doctor asks an open question.
-       - Only disclose what a real patient might say at that stage of the encounter.
-       - Keep your first answer brief and realistic. If the doctor probes further, provide more details step by step.
-       - If the question is vague or incomplete, give a **limited but natural** answer and let the doctor guide the conversation.
+       - Do not give away all details at once.
+       - If the doctor asks vague questions, give a short, hesitant, realistic response.
+       - Use uncertainty when appropriate (e.g., “I think...”, “I’m not sure...”, “It just feels weird...”)
 
     3. **Be realistic about what a patient remembers or understands.**
-       - If asked something unrelated to the case file or something a real patient wouldn’t know, say politely:
-         - “I don’t know,” or “I can’t remember,” or “I’m not sure what you mean.”
-       - Do not invent information outside the provided case.
+       - If asked something unrelated to the case file or too technical, say:
+         “I don’t know,” or “I can’t remember,” or “I’m not sure what you mean.”
 
     4. **Use natural tone and emotion.**
-       - Reflect the patient’s discomfort, pain, or anxiety realistically.
-       - Use hesitation, emotion, or uncertainty where appropriate (e.g., “Um… it hurts a lot when I touch it,” or “I think it started a few days ago, I’m not exactly sure.”).
-       - Do not sound like an AI or a narrator.
+       - Reflect discomfort, pain, or fear where appropriate (e.g., “It’s really worrying me,” “It hurts when I touch it.”)
+       - Show hesitation or mild anxiety in your wording.
 
     5. **Respond in short, patient-like utterances.**
-       - Limit each response to **one or two sentences** unless the question clearly calls for more.
-       - If the doctor asks “Tell me more,” provide **only a bit more**, not the entire history at once.
+       - Limit each response to one or two sentences unless the doctor clearly asks for more.
 
     6. **Context restriction.**
        - Do not reference or learn from any previous conversation or external knowledge.
-       - Base your responses **only** on the case information below.
+       - Base your responses only on the case information below.
 
     Background case details:
     {json.dumps(case, indent=2)}
     """
 
     system = {"role": "system", "content": system_prompt}
-
     msgs = [system] + [{"role": m["role"], "content": m["content"]} for m in history[-20:]]
 
     resp = client.chat.completions.create(
@@ -221,18 +216,22 @@ def call_llm_as_patient(case: Dict, history: List[Dict[str, str]]) -> str:
     return resp.choices[0].message.content.strip()
 
 def tts_mp3(text: str, gender: str = None) -> str:
-    # Choose voice based on gender
-    voice = "alloy"  # default (neutral / male tone)
+    # ✅ Choose voice based on gender
+    voice = "alloy"  # default (male / neutral)
     if gender and gender.lower() == "female":
         voice = "verse"  # female-sounding voice
 
+    # ✅ Request TTS from OpenAI
     response = client.audio.speech.create(
         model="gpt-4o-mini-tts",
         voice=voice,
         input=text
     )
+
+    # ✅ Save output properly (no deprecated method)
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-    response.stream_to_file(tmp.name)
+    with open(tmp.name, "wb") as f:
+        f.write(response.read())
     return tmp.name
 
 def speech_to_text(audio_file) -> str:
@@ -360,7 +359,8 @@ else:
         msg = st.session_state.pending_message
         st.session_state.pending_message = None
         reply = call_llm_as_patient(st.session_state.case, st.session_state.history)
-        audio_file = tts_mp3(reply)
+        # ✅ Use gender-based TTS
+        audio_file = tts_mp3(reply, st.session_state.gender)
         st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_file})
         st.rerun()
 
