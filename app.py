@@ -71,13 +71,14 @@ section.main {{ padding-top: 0rem; margin-top: 0rem; }}
 """, unsafe_allow_html=True)
 
 # ==========================
-# ✨ STYLING (unchanged first page)
+# ✨ STYLING
 # ==========================
 st.markdown("""
 <style>
 body, .block-container {background-color: #f8f9fb;}
 h1,h2,h3 {font-family: 'Segoe UI', sans-serif;}
 
+/* First page cards */
 .avatar-card {
     display: flex;
     flex-direction: column;
@@ -100,6 +101,7 @@ h1,h2,h3 {font-family: 'Segoe UI', sans-serif;}
 .avatar-name { font-weight: 700; margin-top: 8px; font-size: 16px; color: #333; }
 .avatar-case { color: #666; font-size: 14px; }
 
+/* Chat box */
 .chat {
     background:#FFFFFF;
     border-radius:14px;
@@ -107,7 +109,7 @@ h1,h2,h3 {font-family: 'Segoe UI', sans-serif;}
     overflow-y:auto;
     box-shadow:0 2px 8px rgba(0,0,0,0.05);
     display:flex;
-    flex-direction:column-reverse;
+    flex-direction: column;  /* ✅ fixed order */
     padding: 14px;
 }
 .bubble {
@@ -122,6 +124,7 @@ h1,h2,h3 {font-family: 'Segoe UI', sans-serif;}
 .doctor { background:#eef1f5; text-align:left; align-self:flex-start; }
 .patient { background:#e7f5ee; text-align:left; align-self:flex-end; }
 
+/* Patient header */
 .chat-header-card {
     display:flex;flex-direction:column;align-items:center;gap:10px;
     background:white;padding:20px;border-radius:15px;
@@ -130,11 +133,6 @@ h1,h2,h3 {font-family: 'Segoe UI', sans-serif;}
 .chat-header-card img {
     border-radius:15px;
     width:170px;height:170px;object-fit:cover;
-}
-
-[data-baseweb="input"] input {
-    border-radius: 8px !important;
-    padding: 12px 12px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -208,7 +206,7 @@ if "input_mode" not in st.session_state: st.session_state.input_mode = "keyboard
 if "is_replying" not in st.session_state: st.session_state.is_replying = False
 
 # ==========================
-# 🧍 PATIENT SELECTION PAGE (UNCHANGED)
+# 🧍 PATIENT SELECTION PAGE
 # ==========================
 if not st.session_state.case:
     st.subheader("🩺 Select a Patient Case")
@@ -239,7 +237,7 @@ if not st.session_state.case:
             """, unsafe_allow_html=True)
 
 # ==========================
-# 💬 CHAT PAGE (FIXED LOGIC ONLY)
+# 💬 CHAT PAGE
 # ==========================
 else:
     st.button("⬅️ Back to Patients", on_click=lambda: (st.session_state.update({"case": None, "history": []}), st.rerun()))
@@ -278,6 +276,14 @@ else:
     chat_html += "</div>"
     st.markdown(chat_html, unsafe_allow_html=True)
 
+    # ✅ auto scroll to bottom
+    st.markdown("""
+    <script>
+        var chatBox = window.parent.document.getElementById('chatBox');
+        if (chatBox) { chatBox.scrollTop = chatBox.scrollHeight; }
+    </script>
+    """, unsafe_allow_html=True)
+
     def handle_patient_reply():
         try:
             reply = call_llm_as_patient(st.session_state.case, st.session_state.history)
@@ -288,45 +294,37 @@ else:
         st.session_state.is_replying = False
         st.rerun()
 
+    # ==========================
+    # Input bar (fixed structure)
+    # ==========================
     left_icons, input_col = st.columns([0.08, 0.92])
+
     with left_icons:
         kb = st.button("⌨", key="kb_btn", help="Keyboard", use_container_width=True)
         mic = st.button("🎤", key="mic_btn", help="Mic", use_container_width=True)
         if kb: st.session_state.input_mode = "keyboard"
         if mic: st.session_state.input_mode = "voice"
 
-        with input_col:
-            if st.session_state.input_mode == "keyboard":
-                # 👇 Enter triggers instantly and clears
-                user_text = st.chat_input("Type your question…")
-                if user_text and not st.session_state.is_replying:
-                    # ✅ Add the message to the chat history immediately
-                    st.session_state.history.append({"role": "user", "content": user_text})
-                    
-                    # 🔥 Trigger background patient reply
-                    st.session_state.is_replying = True
-                    threading.Thread(target=handle_patient_reply, daemon=True).start()
-
-                    # 👇 No need to clear manually — chat_input does it automatically
-                    st.rerun()
-
-            else:
-                audio_data = st.audio_input("Record your question", label_visibility="collapsed")
-                if audio_data and not st.session_state.is_replying:
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
-                        f.write(audio_data.read())
-                        f.flush()
-                        path = f.name
-                    transcript = speech_to_text(path)
-
-                    # ✅ Show the user's voice message in chat too
-                    st.session_state.history.append({"role": "user", "content": transcript, "audio": path})
-
-                    st.session_state.is_replying = True
-                    threading.Thread(target=handle_patient_reply, daemon=True).start()
-                    st.rerun()
-
-
+    with input_col:
+        if st.session_state.input_mode == "keyboard":
+            user_text = st.chat_input("Type your question…")
+            if user_text and not st.session_state.is_replying:
+                st.session_state.history.append({"role": "user", "content": user_text})
+                st.session_state.is_replying = True
+                threading.Thread(target=handle_patient_reply, daemon=True).start()
+                st.rerun()
+        else:
+            audio_data = st.audio_input("Record your question", label_visibility="collapsed")
+            if audio_data and not st.session_state.is_replying:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
+                    f.write(audio_data.read())
+                    f.flush()
+                    path = f.name
+                transcript = speech_to_text(path)
+                st.session_state.history.append({"role": "user", "content": transcript, "audio": path})
+                st.session_state.is_replying = True
+                threading.Thread(target=handle_patient_reply, daemon=True).start()
+                st.rerun()
 
     def build_transcript_file():
         buf = io.StringIO()
