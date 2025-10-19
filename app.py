@@ -273,7 +273,7 @@ if not st.session_state.case:
     for i, avatar in enumerate(avatars):
         avatar_name = avatar.stem
         gender = extract_gender_from_avatar(avatar_name)  # ✅ female / male / None
-        st.write(f"DEBUG → Avatar: {avatar_name}, Gender detected: {gender}")
+        #st.write(f"DEBUG → Avatar: {avatar_name}, Gender detected: {gender}")
 
         case_key = extract_case_from_avatar(avatar_name)
         parts = avatar_name.split("_")
