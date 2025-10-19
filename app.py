@@ -100,8 +100,11 @@ body, .block-container {background-color: #f8f9fb;}
     box-shadow:0 2px 8px rgba(0,0,0,0.05);
     display:flex;
     flex-direction: column;
+    justify-content: flex-end;  /* ✅ pushes content to bottom */
     padding: 14px;
+    scroll-behavior: smooth;
 }
+
 .bubble {
     padding:10px 14px;
     border-radius:18px;
@@ -262,7 +265,6 @@ else:
     chat_html += "</div>"
     st.markdown(chat_html, unsafe_allow_html=True)
 
-    # ✅ FINAL ROBUST AUTO-SCROLL FIX
     st.markdown("""
     <script>
     function scrollToBottom() {
@@ -272,34 +274,17 @@ else:
         }
     }
 
-    // ✅ Try to find the chat box multiple times (for delayed rendering)
-    let attempts = 0;
-    const intervalId = setInterval(() => {
-        const chatBox = window.parent.document.getElementById('chatBox');
-        if (chatBox || attempts > 20) {
-            clearInterval(intervalId);
-            if (chatBox) {
-                scrollToBottom();
-                // Observe DOM changes after initial load
-                const observer = new MutationObserver(() => {
-                    setTimeout(scrollToBottom, 200);
-                });
-                observer.observe(chatBox, { childList: true, subtree: true });
+    window.addEventListener('load', () => {
+        setTimeout(scrollToBottom, 500);
+    });
 
-                // Also scroll periodically after new messages appear
-                let scrollBoost = 0;
-                const boostInterval = setInterval(() => {
-                    scrollToBottom();
-                    scrollBoost++;
-                    if (scrollBoost > 10) clearInterval(boostInterval);
-                }, 500);
-            }
-        }
-        attempts++;
-    }, 300);
+    const chatBox = window.parent.document.getElementById('chatBox');
+    if (chatBox) {
+        const observer = new MutationObserver(() => scrollToBottom());
+        observer.observe(chatBox, { childList: true, subtree: true });
+    }
     </script>
     """, unsafe_allow_html=True)
-
 
 
 
