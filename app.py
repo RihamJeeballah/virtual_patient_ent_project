@@ -149,13 +149,8 @@ def match_case_by_name(case_name: str):
         if case_name.lower() in cf.stem.lower():
             return cf
     return None
+
 def extract_gender_from_avatar(avatar_name: str) -> str:
-    """
-    Extract gender from avatar filename reliably.
-    Example:
-    blocked_nose_Wisam_female.png -> female
-    blurred_vision_Salem_male.png -> male
-    """
     lower = avatar_name.lower().strip()
     if lower.endswith("_female"):
         return "female"
@@ -221,12 +216,18 @@ def call_llm_as_patient(case: Dict, history: List[Dict[str, str]]) -> str:
     return resp.choices[0].message.content.strip()
 
 def tts_mp3(text: str, gender: str = None) -> str:
+    """
+    Generate MP3 speech for the given text with gender-specific voice.
+    - Female => softer, feminine voice (verse)
+    - Male   => neutral/male voice (alloy)
+    """
     gender = (gender or "").strip().lower()
 
-    # ✅ Explicit mapping
-    voice = "charlie"  # default to male
+    # ✅ Supported voices
     if gender == "female":
         voice = "verse"
+    else:
+        voice = "alloy"   # neutral/male
 
     response = client.audio.speech.create(
         model="gpt-4o-mini-tts",
