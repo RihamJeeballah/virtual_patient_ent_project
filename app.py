@@ -236,6 +236,9 @@ if not st.session_state.case:
 # ==========================
 # CHAT PAGE
 # ==========================
+# ==========================
+# CHAT PAGE
+# ==========================
 else:
     st.button("⬅️ Back to Patients", on_click=lambda: (st.session_state.update({"case": None, "history": []}), st.rerun()))
 
@@ -273,19 +276,55 @@ else:
     chat_html += "</div>"
     st.markdown(chat_html, unsafe_allow_html=True)
 
-    # ✅ Auto scroll to latest message
+    # ✅ Auto scroll always at bottom after rerun
     st.markdown("""
     <script>
     const chatBox = window.parent.document.getElementById('chatBox');
     if (chatBox) {
-      const observer = new MutationObserver(() => {
         chatBox.scrollTop = chatBox.scrollHeight;
-      });
-      observer.observe(chatBox, { childList: true, subtree: true });
-      chatBox.scrollTop = chatBox.scrollHeight;
+        const observer = new MutationObserver(() => {
+            chatBox.scrollTop = chatBox.scrollHeight;
+        });
+        observer.observe(chatBox, { childList: true, subtree: true });
     }
     </script>
     """, unsafe_allow_html=True)
+
+    # 👇 Process pending message if there is one
+    if "pending_message" in st.session_state and st.session_state.pending_message:
+        user_msg = st.session_state.pending_message
+        st.session_state.pending_message = None
+        reply = call_llm_as_patient(st.session_state.case, st.session_state.history)
+        audio_file = tts_mp3(reply)
+        st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_file})
+        st.rerun()
+
+    left_icons, input_col = st.columns([0.08, 0.92])
+
+    with left_icons:
+        kb = st.button("⌨", key="kb_btn", help="Keyboard", use_container_width=True)
+        mic = st.button("🎤", key="mic_btn", help="Mic", use_container_width=True)
+        if kb: st.session_state.input_mode = "keyboard"
+        if mic: st.session_state.input_mode = "voice"
+
+    with input_col:
+        if st.session_state.input_mode == "keyboard":
+            user_text = st.chat_input("Type your question…")
+            if user_text:
+                st.session_state.history.append({"role": "user", "content": user_text})
+                st.session_state.pending_message = user_text   # 🟡 store message for next run
+                st.rerun()
+        else:
+            audio_data = st.audio_input("Record your question", label_visibility="collapsed")
+            if audio_data:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
+                    f.write(audio_data.read())
+                    f.flush()
+                    path = f.name
+                transcript = speech_to_text(path)
+                st.session_state.history.append({"role": "user", "content": transcript, "audio": path})
+                st.session_state.pending_message = transcript
+                st.rerun()
 
     def handle_patient_reply():
         try:
