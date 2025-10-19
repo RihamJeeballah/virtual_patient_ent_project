@@ -262,31 +262,35 @@ else:
     chat_html += "</div>"
     st.markdown(chat_html, unsafe_allow_html=True)
 
-    # ✅ Improved Auto Scroll — always scroll to bottom after new messages
+    # ✅ Final Auto Scroll Fix — works reliably after each message
     st.markdown("""
     <script>
     function scrollToBottom() {
-        const chatBox = window.parent.document.getElementById('chatBox');
-        if (chatBox) {
-            chatBox.scrollTo({ top: chatBox.scrollHeight, behavior: 'instant' });
-        }
-    }
-
-    // Run after rendering finishes
-    window.addEventListener('load', () => {
-        setTimeout(scrollToBottom, 400);
-    });
-
-    // Re-run scroll after new messages appear
     const chatBox = window.parent.document.getElementById('chatBox');
     if (chatBox) {
-        const observer = new MutationObserver(() => {
-            setTimeout(scrollToBottom, 200);
-        });
-        observer.observe(chatBox, { childList: true, subtree: true });
+        chatBox.scrollTop = chatBox.scrollHeight;
     }
+    }
+
+    // Scroll after load (extra delay ensures Streamlit fully renders)
+    window.addEventListener('load', () => {
+    setTimeout(scrollToBottom, 800);
+    });
+
+    // Also scroll after every small DOM change
+    const chatBox = window.parent.document.getElementById('chatBox');
+    if (chatBox) {
+    const observer = new MutationObserver(() => {
+        setTimeout(scrollToBottom, 300);
+    });
+    observer.observe(chatBox, { childList: true, subtree: true });
+    }
+
+    // Force scroll again periodically for safety (e.g., audio loads late)
+    setInterval(scrollToBottom, 1200);
     </script>
     """, unsafe_allow_html=True)
+
 
 
     # 🧠 Process pending message
