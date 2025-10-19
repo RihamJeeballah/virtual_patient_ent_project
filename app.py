@@ -1,4 +1,4 @@
-import os, re, json, html, base64, tempfile, io, threading
+import os, re, json, html, base64, tempfile, io
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
@@ -28,7 +28,7 @@ LOGS_DIR.mkdir(exist_ok=True)
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 # ==========================
-# 🏫 HEADER BANNER
+# 🏫 HEADER
 # ==========================
 LOGO_PATH = "logo.png"
 st.markdown(f"""
@@ -37,7 +37,6 @@ div[data-testid="stDecoration"] {{ display: none; }}
 header {{ display: none; }}
 .block-container {{ padding-top: 0rem; margin-top: 0rem; }}
 section.main {{ padding-top: 0rem; margin-top: 0rem; }}
-
 .header-banner {{
     width: 100vw;
     margin-left: calc(-50vw + 50%);
@@ -76,8 +75,6 @@ section.main {{ padding-top: 0rem; margin-top: 0rem; }}
 st.markdown("""
 <style>
 body, .block-container {background-color: #f8f9fb;}
-h1,h2,h3 {font-family: 'Segoe UI', sans-serif;}
-
 .avatar-card {
     display: flex;
     flex-direction: column;
@@ -86,17 +83,12 @@ h1,h2,h3 {font-family: 'Segoe UI', sans-serif;}
     border-radius: 14px;
     padding: 15px;
     margin-bottom: 20px;
-    transition: box-shadow 0.2s ease;
     box-shadow: 0 2px 8px rgba(0,0,0,0.05);
     cursor: pointer;
+    transition: box-shadow 0.2s ease;
 }
 .avatar-card:hover { box-shadow: 0 4px 14px rgba(0,0,0,0.1); }
-.avatar-card img {
-    border-radius: 50%;
-    width: 130px;
-    height: 130px;
-    object-fit: cover;
-}
+.avatar-card img { border-radius: 50%; width: 130px; height: 130px; object-fit: cover; }
 .avatar-name { font-weight: 700; margin-top: 8px; font-size: 16px; color: #333; }
 .avatar-case { color: #666; font-size: 14px; }
 
@@ -127,10 +119,7 @@ h1,h2,h3 {font-family: 'Segoe UI', sans-serif;}
     background:white;padding:20px;border-radius:15px;
     box-shadow:0 2px 6px rgba(0,0,0,0.05);margin-bottom:15px;
 }
-.chat-header-card img {
-    border-radius:15px;
-    width:170px;height:170px;object-fit:cover;
-}
+.chat-header-card img { border-radius:15px; width:170px;height:170px;object-fit:cover; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -200,10 +189,10 @@ if "patient_name" not in st.session_state: st.session_state.patient_name = None
 if "case_name" not in st.session_state: st.session_state.case_name = None
 if "history" not in st.session_state: st.session_state.history = []
 if "input_mode" not in st.session_state: st.session_state.input_mode = "keyboard"
-if "is_replying" not in st.session_state: st.session_state.is_replying = False
+if "pending_message" not in st.session_state: st.session_state.pending_message = None
 
 # ==========================
-# PATIENT SELECTION PAGE
+# PATIENT SELECTION
 # ==========================
 if not st.session_state.case:
     st.subheader("🩺 Select a Patient Case")
@@ -216,7 +205,7 @@ if not st.session_state.case:
         patient_name = parts[-1].title()
         col = cols[i % num_cols]
         with col:
-            if st.button(f"🧑 {patient_name}\n🩺 {case_name}", key=f"btn_{avatar.stem}"):
+            if st.button(f"🧑 {patient_name}\n🩺 {case_name}", key=f"select_{avatar.stem}"):
                 matched_case = match_case_by_name("_".join(parts[:-1]))
                 if matched_case:
                     st.session_state.case = load_case(matched_case)
@@ -236,11 +225,8 @@ if not st.session_state.case:
 # ==========================
 # CHAT PAGE
 # ==========================
-# ==========================
-# CHAT PAGE
-# ==========================
 else:
-    st.button("⬅️ Back to Patients", on_click=lambda: (st.session_state.update({"case": None, "history": []}), st.rerun()))
+    st.button("⬅️ Back to Patients", key="back_btn", on_click=lambda: (st.session_state.update({"case": None, "history": []}), st.rerun()))
 
     st.markdown(f"""
     <div class="chat-header-card">
@@ -276,23 +262,27 @@ else:
     chat_html += "</div>"
     st.markdown(chat_html, unsafe_allow_html=True)
 
-    # ✅ Auto scroll always at bottom after rerun
+    # ✅ Auto scroll (fixed)
     st.markdown("""
     <script>
+    function scrollToBottom(){
+      const chatBox = window.parent.document.getElementById('chatBox');
+      if (chatBox){
+        chatBox.scrollTo({ top: chatBox.scrollHeight, behavior: 'smooth' });
+      }
+    }
+    setTimeout(scrollToBottom, 150);
     const chatBox = window.parent.document.getElementById('chatBox');
     if (chatBox) {
-        chatBox.scrollTop = chatBox.scrollHeight;
-        const observer = new MutationObserver(() => {
-            chatBox.scrollTop = chatBox.scrollHeight;
-        });
-        observer.observe(chatBox, { childList: true, subtree: true });
+      const observer = new MutationObserver(scrollToBottom);
+      observer.observe(chatBox, { childList: true, subtree: true });
     }
     </script>
     """, unsafe_allow_html=True)
 
-    # 👇 Process pending message if there is one
-    if "pending_message" in st.session_state and st.session_state.pending_message:
-        user_msg = st.session_state.pending_message
+    # 🧠 Process pending message
+    if st.session_state.pending_message:
+        msg = st.session_state.pending_message
         st.session_state.pending_message = None
         reply = call_llm_as_patient(st.session_state.case, st.session_state.history)
         audio_file = tts_mp3(reply)
@@ -300,10 +290,9 @@ else:
         st.rerun()
 
     left_icons, input_col = st.columns([0.08, 0.92])
-
     with left_icons:
-        kb = st.button("⌨", key="kb_btn", help="Keyboard", use_container_width=True)
-        mic = st.button("🎤", key="mic_btn", help="Mic", use_container_width=True)
+        kb = st.button("⌨", key=f"kb_btn_{st.session_state.patient_name}", help="Keyboard", use_container_width=True)
+        mic = st.button("🎤", key=f"mic_btn_{st.session_state.patient_name}", help="Mic", use_container_width=True)
         if kb: st.session_state.input_mode = "keyboard"
         if mic: st.session_state.input_mode = "voice"
 
@@ -312,7 +301,7 @@ else:
             user_text = st.chat_input("Type your question…")
             if user_text:
                 st.session_state.history.append({"role": "user", "content": user_text})
-                st.session_state.pending_message = user_text   # 🟡 store message for next run
+                st.session_state.pending_message = user_text
                 st.rerun()
         else:
             audio_data = st.audio_input("Record your question", label_visibility="collapsed")
@@ -324,48 +313,6 @@ else:
                 transcript = speech_to_text(path)
                 st.session_state.history.append({"role": "user", "content": transcript, "audio": path})
                 st.session_state.pending_message = transcript
-                st.rerun()
-
-    def handle_patient_reply():
-        try:
-            reply = call_llm_as_patient(st.session_state.case, st.session_state.history)
-            audio_file = tts_mp3(reply)
-            st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_file})
-        except Exception as e:
-            st.session_state.history.append({"role": "assistant", "content": f"⚠️ Error: {e}"})
-        st.session_state.is_replying = False
-        st.rerun()
-
-    left_icons, input_col = st.columns([0.08, 0.92])
-
-    with left_icons:
-        kb = st.button("⌨", key="kb_btn", help="Keyboard", use_container_width=True)
-        mic = st.button("🎤", key="mic_btn", help="Mic", use_container_width=True)
-        if kb: st.session_state.input_mode = "keyboard"
-        if mic: st.session_state.input_mode = "voice"
-
-    with input_col:
-        if st.session_state.input_mode == "keyboard":
-            user_text = st.chat_input("Type your question…")
-            if user_text:
-                st.session_state.history.append({"role": "user", "content": user_text})
-                if not st.session_state.is_replying:
-                    st.session_state.is_replying = True
-                    threading.Thread(target=handle_patient_reply, daemon=True).start()
-                st.rerun()
-
-        else:
-            audio_data = st.audio_input("Record your question", label_visibility="collapsed")
-            if audio_data:
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
-                    f.write(audio_data.read())
-                    f.flush()
-                    path = f.name
-                transcript = speech_to_text(path)
-                st.session_state.history.append({"role": "user", "content": transcript, "audio": path})
-                if not st.session_state.is_replying:
-                    st.session_state.is_replying = True
-                    threading.Thread(target=handle_patient_reply, daemon=True).start()
                 st.rerun()
 
     def build_transcript_file():
