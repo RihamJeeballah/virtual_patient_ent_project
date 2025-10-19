@@ -262,7 +262,6 @@ if "case_name" not in st.session_state: st.session_state.case_name = None
 if "history" not in st.session_state: st.session_state.history = []
 if "input_mode" not in st.session_state: st.session_state.input_mode = "keyboard"
 if "pending_message" not in st.session_state: st.session_state.pending_message = None
-
 # ==========================
 # PATIENT SELECTION
 # ==========================
@@ -304,6 +303,7 @@ if not st.session_state.case:
                     <div class='avatar-case'>{case_display}</div>
                 </div>
             """, unsafe_allow_html=True)
+
 
 # ==========================
 # CHAT PAGE
