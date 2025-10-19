@@ -225,9 +225,9 @@ def tts_mp3(text: str, gender: str = None) -> str:
 
     # ✅ Supported voices
     if gender == "female":
-        voice = "verse"
+        voice = "alloy"
     else:
-        voice = "alloy"   # neutral/male
+        voice = "verse"   # neutral/male
 
     response = client.audio.speech.create(
         model="gpt-4o-mini-tts",
