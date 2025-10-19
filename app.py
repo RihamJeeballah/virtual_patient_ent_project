@@ -262,23 +262,32 @@ else:
     chat_html += "</div>"
     st.markdown(chat_html, unsafe_allow_html=True)
 
-    # ✅ Auto scroll (fixed)
+    # ✅ Improved Auto Scroll — always scroll to bottom after new messages
     st.markdown("""
     <script>
-    function scrollToBottom(){
-      const chatBox = window.parent.document.getElementById('chatBox');
-      if (chatBox){
-        chatBox.scrollTo({ top: chatBox.scrollHeight, behavior: 'smooth' });
-      }
+    function scrollToBottom() {
+        const chatBox = window.parent.document.getElementById('chatBox');
+        if (chatBox) {
+            chatBox.scrollTo({ top: chatBox.scrollHeight, behavior: 'instant' });
+        }
     }
-    setTimeout(scrollToBottom, 150);
+
+    // Run after rendering finishes
+    window.addEventListener('load', () => {
+        setTimeout(scrollToBottom, 400);
+    });
+
+    // Re-run scroll after new messages appear
     const chatBox = window.parent.document.getElementById('chatBox');
     if (chatBox) {
-      const observer = new MutationObserver(scrollToBottom);
-      observer.observe(chatBox, { childList: true, subtree: true });
+        const observer = new MutationObserver(() => {
+            setTimeout(scrollToBottom, 200);
+        });
+        observer.observe(chatBox, { childList: true, subtree: true });
     }
     </script>
     """, unsafe_allow_html=True)
+
 
     # 🧠 Process pending message
     if st.session_state.pending_message:
