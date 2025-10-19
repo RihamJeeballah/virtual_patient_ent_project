@@ -297,13 +297,19 @@ else:
 
     with input_col:
         if st.session_state.input_mode == "keyboard":
-            # 👇 st.chat_input clears automatically when you press Enter
+            # 👇 Enter triggers instantly and clears
             user_text = st.chat_input("Type your question…")
             if user_text and not st.session_state.is_replying:
+                # ✅ Add the message to the chat history immediately
                 st.session_state.history.append({"role": "user", "content": user_text})
+                
+                # 🔥 Trigger background patient reply
                 st.session_state.is_replying = True
                 threading.Thread(target=handle_patient_reply, daemon=True).start()
+
+                # 👇 No need to clear manually — chat_input does it automatically
                 st.rerun()
+
         else:
             audio_data = st.audio_input("Record your question", label_visibility="collapsed")
             if audio_data and not st.session_state.is_replying:
@@ -312,10 +318,14 @@ else:
                     f.flush()
                     path = f.name
                 transcript = speech_to_text(path)
+
+                # ✅ Show the user's voice message in chat too
                 st.session_state.history.append({"role": "user", "content": transcript, "audio": path})
+
                 st.session_state.is_replying = True
                 threading.Thread(target=handle_patient_reply, daemon=True).start()
                 st.rerun()
+
 
 
     def build_transcript_file():
