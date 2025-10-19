@@ -258,7 +258,7 @@ else:
         patient_icon_b64 = base64.b64encode(img_f.read()).decode()
 
     chat_html = "<div class='chat' id='chatBox'>"
-    for m in reversed(st.session_state.history):
+    for m in st.session_state.history:
         if m["role"] == "user":
             chat_html += f"<div class='bubble doctor'><span style='font-weight:600;margin-right:6px;'>👨‍⚕️</span>{esc(m['content'])}</div>"
         else:
