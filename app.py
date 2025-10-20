@@ -310,118 +310,124 @@ if not st.session_state.case:
                 </div>
             """, unsafe_allow_html=True)
 
-
 # ==========================
-# CHAT PAGE
+# CHAT PAGE (Modified Layout)
 # ==========================
 else:
     st.button("⬅️ Back to Patients", key="back_btn", on_click=lambda: (st.session_state.update({"case": None, "history": []}), st.rerun()))
 
-    st.markdown(f"""
-    <div class="chat-header-card">
-        <img src='data:image/png;base64,{base64.b64encode(open(st.session_state.avatar_path, "rb").read()).decode()}'>
-        <div style='text-align:center;'>
-            <h2 style='margin:0'>{st.session_state.patient_name}</h2>
-            <div style='color:#777;font-size:14px'>{st.session_state.case.get("title","")}</div>
+    # 🧭 Create two columns → Left for avatar / Right for chat
+    col_avatar, col_chat = st.columns([0.35, 0.65])
+
+    # ==========================
+    # LEFT SIDE — Big Avatar
+    # ==========================
+    with col_avatar:
+        st.markdown(f"""
+        <div style='display:flex;flex-direction:column;align-items:center;'>
+            <img src='data:image/png;base64,{base64.b64encode(open(st.session_state.avatar_path, "rb").read()).decode()}'
+                 style='border-radius:20px;width:350px;height:350px;object-fit:cover;margin-bottom:15px;'>
+            <h2 style='margin:0;text-align:center;'>{st.session_state.patient_name}</h2>
+            <div style='color:#777;font-size:14px;text-align:center;'>{st.session_state.case.get("title","")}</div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
-    with open(st.session_state.avatar_path, "rb") as img_f:
-        patient_icon_b64 = base64.b64encode(img_f.read()).decode()
+    # ==========================
+    # RIGHT SIDE — Chat
+    # ==========================
+    with col_chat:
+        with open(st.session_state.avatar_path, "rb") as img_f:
+            patient_icon_b64 = base64.b64encode(img_f.read()).decode()
 
-    chat_html = "<div class='chat' id='chatBox'>"
-    for m in st.session_state.history:
-        if m["role"] == "user":
-            chat_html += f"<div class='bubble doctor'><span style='font-weight:600;margin-right:6px;'>👨‍⚕️</span>{esc(m['content'])}</div>"
-        else:
-            chat_html += f"""
-            <div class='bubble patient'>
-                <img src='data:image/png;base64,{patient_icon_b64}' style='width:26px;height:26px;border-radius:6px;vertical-align:middle;margin-right:8px;'>
-                {esc(m['content'])}
-            """
-            if "audio" in m:
-                try:
-                    with open(m["audio"], "rb") as f:
-                        b64 = base64.b64encode(f.read()).decode()
-                    chat_html += f"<audio controls autoplay style='display:block;margin-top:4px;'><source src='data:audio/mp3;base64,{b64}' type='audio/mp3'></audio>"
-                except FileNotFoundError:
-                    pass
-            chat_html += "</div>"
-    chat_html += "</div>"
-    st.markdown(chat_html, unsafe_allow_html=True)
+        chat_html = "<div class='chat' id='chatBox'>"
+        for m in st.session_state.history:
+            if m["role"] == "user":
+                chat_html += f"<div class='bubble doctor'><span style='font-weight:600;margin-right:6px;'>👨‍⚕️</span>{esc(m['content'])}</div>"
+            else:
+                chat_html += f"""
+                <div class='bubble patient'>
+                    <img src='data:image/png;base64,{patient_icon_b64}' style='width:26px;height:26px;border-radius:6px;vertical-align:middle;margin-right:8px;'>
+                    {esc(m['content'])}
+                """
+                if "audio" in m:
+                    try:
+                        with open(m["audio"], "rb") as f:
+                            b64 = base64.b64encode(f.read()).decode()
+                        chat_html += f"<audio controls autoplay style='display:block;margin-top:4px;'><source src='data:audio/mp3;base64,{b64}' type='audio/mp3'></audio>"
+                    except FileNotFoundError:
+                        pass
+                chat_html += "</div>"
+        chat_html += "</div>"
+        st.markdown(chat_html, unsafe_allow_html=True)
 
-    st.markdown("""
-    <script>
-    function scrollToBottom() {
+        st.markdown("""
+        <script>
+        function scrollToBottom() {
+            const chatBox = window.parent.document.getElementById('chatBox');
+            if (chatBox) {
+                chatBox.scrollTop = chatBox.scrollHeight;
+            }
+        }
+
+        window.addEventListener('load', () => {
+            setTimeout(scrollToBottom, 500);
+        });
+
         const chatBox = window.parent.document.getElementById('chatBox');
         if (chatBox) {
-            chatBox.scrollTop = chatBox.scrollHeight;
+            const observer = new MutationObserver(() => scrollToBottom());
+            observer.observe(chatBox, { childList: true, subtree: true });
         }
-    }
+        </script>
+        """, unsafe_allow_html=True)
 
-    window.addEventListener('load', () => {
-        setTimeout(scrollToBottom, 500);
-    });
+        # 🧠 Process pending message
+        if st.session_state.pending_message:
+            msg = st.session_state.pending_message
+            st.session_state.pending_message = None
 
-    const chatBox = window.parent.document.getElementById('chatBox');
-    if (chatBox) {
-        const observer = new MutationObserver(() => scrollToBottom());
-        observer.observe(chatBox, { childList: true, subtree: true });
-    }
-    </script>
-    """, unsafe_allow_html=True)
+            with st.spinner("💬 Patient is responding..."):
+                reply = call_llm_as_patient(st.session_state.case, st.session_state.history)
+                audio_file = tts_mp3(reply, st.session_state.gender)
 
+            st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_file})
+            st.rerun()
 
+        left_icons, input_col = st.columns([0.08, 0.92])
+        with left_icons:
+            kb = st.button("⌨", key=f"kb_btn_{st.session_state.patient_name}", help="Keyboard", use_container_width=True)
+            mic = st.button("🎤", key=f"mic_btn_{st.session_state.patient_name}", help="Mic", use_container_width=True)
+            if kb: st.session_state.input_mode = "keyboard"
+            if mic: st.session_state.input_mode = "voice"
 
-    # 🧠 Process pending message
-    if st.session_state.pending_message:
-        msg = st.session_state.pending_message
-        st.session_state.pending_message = None
+        with input_col:
+            if st.session_state.input_mode == "keyboard":
+                user_text = st.chat_input("Type your question…")
+                if user_text:
+                    st.session_state.history.append({"role": "user", "content": user_text})
+                    st.session_state.pending_message = user_text
+                    
+            else:
+                audio_data = st.audio_input("Record your question", label_visibility="collapsed")
 
-        with st.spinner("💬 Patient is responding..."):
-            reply = call_llm_as_patient(st.session_state.case, st.session_state.history)
-            audio_file = tts_mp3(reply, st.session_state.gender)
+                # 👇 Automatically send after recording ends — but validate first
+                if audio_data:
+                    audio_bytes = audio_data.read()
 
-        st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_file})
-        st.rerun()
+                    # ✅ Check it's not empty or too short (threshold 500 bytes)
+                    if audio_bytes and len(audio_bytes) > 500:
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
+                            f.write(audio_bytes)
+                            f.flush()
+                            path = f.name
 
-    left_icons, input_col = st.columns([0.08, 0.92])
-    with left_icons:
-        kb = st.button("⌨", key=f"kb_btn_{st.session_state.patient_name}", help="Keyboard", use_container_width=True)
-        mic = st.button("🎤", key=f"mic_btn_{st.session_state.patient_name}", help="Mic", use_container_width=True)
-        if kb: st.session_state.input_mode = "keyboard"
-        if mic: st.session_state.input_mode = "voice"
+                        transcript = speech_to_text(path).strip()
 
-    with input_col:
-        if st.session_state.input_mode == "keyboard":
-            user_text = st.chat_input("Type your question…")
-            if user_text:
-                st.session_state.history.append({"role": "user", "content": user_text})
-                st.session_state.pending_message = user_text
-                
-        else:
-            audio_data = st.audio_input("Record your question", label_visibility="collapsed")
-
-            # 👇 Automatically send after recording ends — but validate first
-            if audio_data:
-                audio_bytes = audio_data.read()
-
-                # ✅ Check it's not empty or too short (threshold 500 bytes)
-                if audio_bytes and len(audio_bytes) > 500:
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
-                        f.write(audio_bytes)
-                        f.flush()
-                        path = f.name
-
-                    transcript = speech_to_text(path).strip()
-
-                    # ✅ Only send if transcription is not empty
-                    if transcript:
-                        st.session_state.history.append({"role": "user", "content": transcript, "audio": path})
-                        st.session_state.pending_message = transcript
-                        st.rerun()
-
+                        # ✅ Only send if transcription is not empty
+                        if transcript:
+                            st.session_state.history.append({"role": "user", "content": transcript, "audio": path})
+                            st.session_state.pending_message = transcript
+                            st.rerun()
 
     def build_transcript_file():
         buf = io.StringIO()
