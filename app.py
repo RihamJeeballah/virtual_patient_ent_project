@@ -216,45 +216,9 @@ def extract_case_from_avatar(avatar_name: str) -> str:
     # remove the last part (gender) and the second to last part (patient name)
     return "_".join(parts[:-2])
 
-
-def call_llm_as_patient_stream(case: Dict, history: List[Dict[str, str]]):
-    system_prompt = f"""
-    You are role-playing as a **real human patient** in a clinical encounter with a doctor.
-    Strictly follow the rules below to ensure a natural, realistic interaction:
-
-    1. **Stay fully in character as the patient.**
-       - Speak in the **first person** only.
-       - Use natural, conversational language that a layperson would use.
-       - Sound slightly **anxious**, **worried**, or **unsure** — like someone genuinely concerned about their health.
-
-    2. **Reveal information gradually and appropriately.**
-       - Do not give away all details at once.
-       - If the doctor asks vague questions, give a short, hesitant, realistic response.
-       - Use uncertainty when appropriate (e.g., “I think...”, “I’m not sure...”, “It just feels weird...”)
-
-    3. **Be realistic about what a patient remembers or understands.**
-       - If asked something unrelated to the case file or too technical, say:
-         “I don’t know,” or “I can’t remember,” or “I’m not sure what you mean.”
-
-    4. **Use natural tone and emotion.**
-       - Reflect discomfort, pain, or fear where appropriate (e.g., “It’s really worrying me,” “It hurts when I touch it.”)
-       - Show hesitation or mild anxiety in your wording.
-
-    5. **Respond in short, patient-like utterances.**
-       - Limit each response to one or two sentences unless the doctor clearly asks for more.
-
-    6. **Context restriction.**
-       - Do not reference or learn from any previous conversation or external knowledge.
-       - Base your responses only on the case information below.
-
-    Background case details:
-    {json.dumps(case, indent=2)}
-    """
-
     system = {"role": "system", "content": system_prompt}
     msgs = [system] + [{"role": m["role"], "content": m["content"]} for m in history[-20:]]
 
-    # ✅ Stream response
     stream = client.chat.completions.create(
         model=MODEL,
         messages=msgs,
@@ -264,12 +228,17 @@ def call_llm_as_patient_stream(case: Dict, history: List[Dict[str, str]]):
     )
 
     collected_chunks = []
+    # 👇 Create a placeholder for live updates
+    placeholder = st.empty()
+
     for event in stream:
-        if event.choices[0].delta.get("content"):
-            collected_chunks.append(event.choices[0].delta.content)
-            # Update placeholder text live
-            st.session_state.history[-1]["content"] = "".join(collected_chunks)
-            st.experimental_rerun()  # live update
+        delta = event.choices[0].delta.get("content")
+        if delta:
+            collected_chunks.append(delta)
+            text_so_far = "".join(collected_chunks)
+            st.session_state.history[-1]["content"] = text_so_far
+            placeholder.markdown(f"💬 {text_so_far}", unsafe_allow_html=True)
+
     return "".join(collected_chunks)
 
 def tts_mp3(text: str, gender: str = None) -> str:
@@ -386,20 +355,23 @@ else:
 
     # 🧠 Process pending message
     if st.session_state.pending_message:
-        msg = st.session_state.pending_message
+        user_msg = st.session_state.pending_message
         st.session_state.pending_message = None
 
-        # ✅ Add placeholder assistant message so UI updates immediately
+        # Add doctor message
+        st.session_state.history.append({"role": "user", "content": user_msg})
+
+        # Add placeholder for assistant
         st.session_state.history.append({"role": "assistant", "content": "..."})
         st.rerun()
 
-        # Generate LLM reply in streaming mode
+        # Call streaming function (it updates placeholder directly)
         reply = call_llm_as_patient_stream(st.session_state.case, st.session_state.history[:-1])
 
-        # ✅ Generate audio after text is ready
+        # After text is ready, generate TTS
         audio_file = tts_mp3(reply, st.session_state.gender)
 
-        # ✅ Replace placeholder with final reply + audio
+        # Replace placeholder
         st.session_state.history[-1] = {"role": "assistant", "content": reply, "audio": audio_file}
         st.rerun()
 
