@@ -370,18 +370,7 @@ else:
 
     render_chat()
     # 🧠 Process pending message AFTER rendering the chatbox
-    if st.session_state.pending_message:
-        msg = st.session_state.pending_message
-        st.session_state.pending_message = None
-
-        st.rerun()
-
-        with st.spinner("💬 Patient is responding..."):
-            reply = call_llm_as_patient(st.session_state.case, st.session_state.history)
-            audio_file = tts_mp3(reply, st.session_state.gender)
-
-        st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_file})
-        st.rerun()
+    
 
 
     # 🧠 Process pending message
