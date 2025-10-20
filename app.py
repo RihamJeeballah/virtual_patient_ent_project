@@ -135,47 +135,6 @@ body, .block-container {background-color: #f8f9fb;}
 # ==========================
 # 🧠 HELPERS
 # ==========================
-def render_chat():
-    with open(st.session_state.avatar_path, "rb") as img_f:
-        patient_icon_b64 = base64.b64encode(img_f.read()).decode()
-
-    chat_html = "<div class='chat' id='chatBox'>"
-    for m in st.session_state.history:
-        if m["role"] == "user":
-            chat_html += f"<div class='bubble doctor'><span style='font-weight:600;margin-right:6px;'>👨‍⚕️</span>{esc(m['content'])}</div>"
-        else:
-            chat_html += f"""
-            <div class='bubble patient'>
-                <img src='data:image/png;base64,{patient_icon_b64}' style='width:26px;height:26px;border-radius:6px;vertical-align:middle;margin-right:8px;'>
-                {esc(m['content'])}
-            """
-            if "audio" in m:
-                try:
-                    with open(m["audio"], "rb") as f:
-                        b64 = base64.b64encode(f.read()).decode()
-                    chat_html += f"<audio controls autoplay style='display:block;margin-top:4px;'><source src='data:audio/mp3;base64,{b64}' type='audio/mp3'></audio>"
-                except FileNotFoundError:
-                    pass
-            chat_html += "</div>"
-    chat_html += "</div>"
-    st.markdown(chat_html, unsafe_allow_html=True)
-
-    # ✅ Keep the scroll script too
-    st.markdown("""
-    <script>
-    function scrollToBottom() {
-        const chatBox = window.parent.document.getElementById('chatBox');
-        if (chatBox) chatBox.scrollTop = chatBox.scrollHeight;
-    }
-    window.addEventListener('load', () => { setTimeout(scrollToBottom, 500); });
-    const chatBox = window.parent.document.getElementById('chatBox');
-    if (chatBox) {
-        const observer = new MutationObserver(() => scrollToBottom());
-        observer.observe(chatBox, { childList: true, subtree: true });
-    }
-    </script>
-    """, unsafe_allow_html=True)
-
 def esc(x: str) -> str:
     return html.escape(x).replace("\n", "<br>")
 
@@ -216,20 +175,14 @@ def extract_case_from_avatar(avatar_name: str) -> str:
     # remove the last part (gender) and the second to last part (patient name)
     return "_".join(parts[:-2])
 
-
-def call_llm_as_patient_stream(case: Dict, history: List[Dict[str, str]]) -> str:
-    """
-    Stream a patient-like response from the LLM with realistic behavior,
-    handling empty streaming events safely.
-    """
-
+def call_llm_as_patient(case: Dict, history: List[Dict[str, str]]) -> str:
     system_prompt = f"""
     You are role-playing as a **real human patient** in a clinical encounter with a doctor.
-    Strictly follow these rules to ensure a natural and realistic interaction:
+    Strictly follow the rules below to ensure a natural, realistic interaction:
 
     1. **Stay fully in character as the patient.**
        - Speak in the **first person** only.
-       - Use natural, conversational language like a layperson.
+       - Use natural, conversational language that a layperson would use.
        - Sound slightly **anxious**, **worried**, or **unsure** — like someone genuinely concerned about their health.
 
     2. **Reveal information gradually and appropriately.**
@@ -242,8 +195,7 @@ def call_llm_as_patient_stream(case: Dict, history: List[Dict[str, str]]) -> str
          “I don’t know,” or “I can’t remember,” or “I’m not sure what you mean.”
 
     4. **Use natural tone and emotion.**
-       - Reflect discomfort, pain, or fear where appropriate
-         (e.g., “It’s really worrying me,” “It hurts when I touch it.”)
+       - Reflect discomfort, pain, or fear where appropriate (e.g., “It’s really worrying me,” “It hurts when I touch it.”)
        - Show hesitation or mild anxiety in your wording.
 
     5. **Respond in short, patient-like utterances.**
@@ -258,33 +210,15 @@ def call_llm_as_patient_stream(case: Dict, history: List[Dict[str, str]]) -> str
     """
 
     system = {"role": "system", "content": system_prompt}
-    msgs = [system] + [{"role": m["role"], "content": m["content"]} for m in history]
+    msgs = [system] + [{"role": m["role"], "content": m["content"]} for m in history[-20:]]
 
-    stream = client.chat.completions.create(
+    resp = client.chat.completions.create(
         model=MODEL,
         messages=msgs,
         temperature=0.8,
-        max_tokens=300,
-        stream=True
+        max_tokens=300
     )
-
-    collected_chunks = []
-    placeholder = st.empty()
-
-    for event in stream:
-        # ✅ Safely check for content
-        if "choices" in event and event["choices"]:
-            delta = event["choices"][0].get("delta", {})
-            if "content" in delta:
-                content_piece = delta["content"]
-                collected_chunks.append(content_piece)
-
-                current_text = "".join(collected_chunks)
-                st.session_state.history[-1]["content"] = current_text
-                placeholder.markdown(current_text, unsafe_allow_html=True)
-
-    return "".join(collected_chunks)
-
+    return resp.choices[0].message.content.strip()
 
 def tts_mp3(text: str, gender: str = None) -> str:
     """
@@ -393,38 +327,63 @@ else:
     </div>
     """, unsafe_allow_html=True)
 
-    render_chat()
-    # 🧠 Process pending message AFTER rendering the chatbox
-    
+    with open(st.session_state.avatar_path, "rb") as img_f:
+        patient_icon_b64 = base64.b64encode(img_f.read()).decode()
+
+    chat_html = "<div class='chat' id='chatBox'>"
+    for m in st.session_state.history:
+        if m["role"] == "user":
+            chat_html += f"<div class='bubble doctor'><span style='font-weight:600;margin-right:6px;'>👨‍⚕️</span>{esc(m['content'])}</div>"
+        else:
+            chat_html += f"""
+            <div class='bubble patient'>
+                <img src='data:image/png;base64,{patient_icon_b64}' style='width:26px;height:26px;border-radius:6px;vertical-align:middle;margin-right:8px;'>
+                {esc(m['content'])}
+            """
+            if "audio" in m:
+                try:
+                    with open(m["audio"], "rb") as f:
+                        b64 = base64.b64encode(f.read()).decode()
+                    chat_html += f"<audio controls autoplay style='display:block;margin-top:4px;'><source src='data:audio/mp3;base64,{b64}' type='audio/mp3'></audio>"
+                except FileNotFoundError:
+                    pass
+            chat_html += "</div>"
+    chat_html += "</div>"
+    st.markdown(chat_html, unsafe_allow_html=True)
+
+    st.markdown("""
+    <script>
+    function scrollToBottom() {
+        const chatBox = window.parent.document.getElementById('chatBox');
+        if (chatBox) {
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+    }
+
+    window.addEventListener('load', () => {
+        setTimeout(scrollToBottom, 500);
+    });
+
+    const chatBox = window.parent.document.getElementById('chatBox');
+    if (chatBox) {
+        const observer = new MutationObserver(() => scrollToBottom());
+        observer.observe(chatBox, { childList: true, subtree: true });
+    }
+    </script>
+    """, unsafe_allow_html=True)
+
 
 
     # 🧠 Process pending message
     if st.session_state.pending_message:
-        user_msg = st.session_state.pending_message
+        msg = st.session_state.pending_message
         st.session_state.pending_message = None
 
-        # ✅ Step 1: Add doctor message immediately
-        st.session_state.history.append({"role": "user", "content": user_msg})
+        with st.spinner("💬 Patient is responding..."):
+            reply = call_llm_as_patient(st.session_state.case, st.session_state.history)
+            audio_file = tts_mp3(reply, st.session_state.gender)
 
-        # ✅ Step 2: Add a placeholder for patient
-        st.session_state.history.append({"role": "assistant", "content": "..."})
-
-        # 🚫 Don't rerun here — this was breaking the stream before
-        # st.rerun()
-
-        # ✅ Step 3: Stream the reply
-        reply = call_llm_as_patient_stream(
-            st.session_state.case,
-            st.session_state.history[:-1]  # pass history excluding placeholder
-        )
-
-        # ✅ Step 4: Generate audio after the full text is received
-        audio_file = tts_mp3(reply, st.session_state.gender)
-
-        # ✅ Step 5: Replace the placeholder with the final content and audio
-        st.session_state.history[-1] = {"role": "assistant", "content": reply, "audio": audio_file}
-
-        # ✅ Step 6: Rerun once to refresh the UI with the final state
+        st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_file})
         st.rerun()
 
     left_icons, input_col = st.columns([0.08, 0.92])
