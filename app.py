@@ -218,10 +218,7 @@ def extract_case_from_avatar(avatar_name: str) -> str:
 
 def call_llm_as_patient_stream(case: Dict, history: List[Dict[str, str]]) -> str:
     """
-    Stream a patient-like response from the LLM.
-    - Uses realistic patient behavior prompt
-    - Streams content token by token
-    - Updates placeholder message in real-time
+    Stream a patient-like response from the LLM with realistic behavior.
     """
 
     system_prompt = f"""
@@ -261,7 +258,6 @@ def call_llm_as_patient_stream(case: Dict, history: List[Dict[str, str]]) -> str
     system = {"role": "system", "content": system_prompt}
     msgs = [system] + [{"role": m["role"], "content": m["content"]} for m in history]
 
-    # ✅ Start streaming the response
     stream = client.chat.completions.create(
         model=MODEL,
         messages=msgs,
@@ -271,16 +267,16 @@ def call_llm_as_patient_stream(case: Dict, history: List[Dict[str, str]]) -> str
     )
 
     collected_chunks = []
-    placeholder = st.empty()  # for live streaming in UI
+    placeholder = st.empty()
 
     for event in stream:
-        delta = event.choices[0].delta.get("content")
+        # ✅ Use dict access instead of attribute access
+        delta = event["choices"][0]["delta"].get("content")
         if delta:
             collected_chunks.append(delta)
             current_text = "".join(collected_chunks)
-            # ✅ Update placeholder in session state (live typing effect)
             st.session_state.history[-1]["content"] = current_text
-            placeholder.markdown(f"{current_text}", unsafe_allow_html=True)
+            placeholder.markdown(current_text, unsafe_allow_html=True)
 
     return "".join(collected_chunks)
 
