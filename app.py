@@ -287,7 +287,7 @@ if not st.session_state.case:
 
         col = cols[i % num_cols]
         with col:
-            if st.button(f" {patient_name}\n- {case_display}", key=f"select_{avatar_name}"):
+            if st.button(f" {patient_name} - {case_display}", key=f"select_{avatar_name}"):
 
                 matched_case = match_case_by_name(case_key)
                 if matched_case:
