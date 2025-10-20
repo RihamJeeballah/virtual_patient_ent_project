@@ -311,35 +311,36 @@ if not st.session_state.case:
             """, unsafe_allow_html=True)
 
 # ==========================
-# CHAT PAGE (Modified Layout)
+# CHAT PAGE (Larger Image + Wider Chat)
 # ==========================
 else:
     st.button("⬅️ Back to Patients", key="back_btn", on_click=lambda: (st.session_state.update({"case": None, "history": []}), st.rerun()))
 
-    # 🧭 Create two columns → Left for avatar / Right for chat
-    col_avatar, col_chat = st.columns([0.35, 0.65])
+    # 🧭 Adjusted column ratio for wider screen use
+    col_avatar, col_chat = st.columns([0.45, 0.55])
 
     # ==========================
-    # LEFT SIDE — Big Avatar
+    # LEFT SIDE — Larger Avatar
     # ==========================
     with col_avatar:
         st.markdown(f"""
         <div style='display:flex;flex-direction:column;align-items:center;'>
             <img src='data:image/png;base64,{base64.b64encode(open(st.session_state.avatar_path, "rb").read()).decode()}'
-                 style='border-radius:20px;width:350px;height:350px;object-fit:cover;margin-bottom:15px;'>
-            <h2 style='margin:0;text-align:center;'>{st.session_state.patient_name}</h2>
-            <div style='color:#777;font-size:14px;text-align:center;'>{st.session_state.case.get("title","")}</div>
+                 style='border-radius:20px;width:500px;max-width:100%;height:auto;object-fit:cover;margin-bottom:15px;'>
+            <h2 style='margin:0;text-align:center;font-size:26px;'>{st.session_state.patient_name}</h2>
+            <div style='color:#777;font-size:16px;text-align:center;'>{st.session_state.case.get("title","")}</div>
         </div>
         """, unsafe_allow_html=True)
 
     # ==========================
-    # RIGHT SIDE — Chat
+    # RIGHT SIDE — Expanded Chat Area
     # ==========================
     with col_chat:
         with open(st.session_state.avatar_path, "rb") as img_f:
             patient_icon_b64 = base64.b64encode(img_f.read()).decode()
 
-        chat_html = "<div class='chat' id='chatBox'>"
+        # Increased chat height
+        chat_html = "<div class='chat' id='chatBox' style='height:650px;'>"
         for m in st.session_state.history:
             if m["role"] == "user":
                 chat_html += f"<div class='bubble doctor'><span style='font-weight:600;margin-right:6px;'>👨‍⚕️</span>{esc(m['content'])}</div>"
