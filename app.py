@@ -135,6 +135,47 @@ body, .block-container {background-color: #f8f9fb;}
 # ==========================
 # 🧠 HELPERS
 # ==========================
+def render_chat():
+    with open(st.session_state.avatar_path, "rb") as img_f:
+        patient_icon_b64 = base64.b64encode(img_f.read()).decode()
+
+    chat_html = "<div class='chat' id='chatBox'>"
+    for m in st.session_state.history:
+        if m["role"] == "user":
+            chat_html += f"<div class='bubble doctor'><span style='font-weight:600;margin-right:6px;'>👨‍⚕️</span>{esc(m['content'])}</div>"
+        else:
+            chat_html += f"""
+            <div class='bubble patient'>
+                <img src='data:image/png;base64,{patient_icon_b64}' style='width:26px;height:26px;border-radius:6px;vertical-align:middle;margin-right:8px;'>
+                {esc(m['content'])}
+            """
+            if "audio" in m:
+                try:
+                    with open(m["audio"], "rb") as f:
+                        b64 = base64.b64encode(f.read()).decode()
+                    chat_html += f"<audio controls autoplay style='display:block;margin-top:4px;'><source src='data:audio/mp3;base64,{b64}' type='audio/mp3'></audio>"
+                except FileNotFoundError:
+                    pass
+            chat_html += "</div>"
+    chat_html += "</div>"
+    st.markdown(chat_html, unsafe_allow_html=True)
+
+    # ✅ Keep the scroll script too
+    st.markdown("""
+    <script>
+    function scrollToBottom() {
+        const chatBox = window.parent.document.getElementById('chatBox');
+        if (chatBox) chatBox.scrollTop = chatBox.scrollHeight;
+    }
+    window.addEventListener('load', () => { setTimeout(scrollToBottom, 500); });
+    const chatBox = window.parent.document.getElementById('chatBox');
+    if (chatBox) {
+        const observer = new MutationObserver(() => scrollToBottom());
+        observer.observe(chatBox, { childList: true, subtree: true });
+    }
+    </script>
+    """, unsafe_allow_html=True)
+
 def esc(x: str) -> str:
     return html.escape(x).replace("\n", "<br>")
 
@@ -327,51 +368,20 @@ else:
     </div>
     """, unsafe_allow_html=True)
 
-    with open(st.session_state.avatar_path, "rb") as img_f:
-        patient_icon_b64 = base64.b64encode(img_f.read()).decode()
+    render_chat()
+    # 🧠 Process pending message AFTER rendering the chatbox
+    if st.session_state.pending_message:
+        msg = st.session_state.pending_message
+        st.session_state.pending_message = None
 
-    chat_html = "<div class='chat' id='chatBox'>"
-    for m in st.session_state.history:
-        if m["role"] == "user":
-            chat_html += f"<div class='bubble doctor'><span style='font-weight:600;margin-right:6px;'>👨‍⚕️</span>{esc(m['content'])}</div>"
-        else:
-            chat_html += f"""
-            <div class='bubble patient'>
-                <img src='data:image/png;base64,{patient_icon_b64}' style='width:26px;height:26px;border-radius:6px;vertical-align:middle;margin-right:8px;'>
-                {esc(m['content'])}
-            """
-            if "audio" in m:
-                try:
-                    with open(m["audio"], "rb") as f:
-                        b64 = base64.b64encode(f.read()).decode()
-                    chat_html += f"<audio controls autoplay style='display:block;margin-top:4px;'><source src='data:audio/mp3;base64,{b64}' type='audio/mp3'></audio>"
-                except FileNotFoundError:
-                    pass
-            chat_html += "</div>"
-    chat_html += "</div>"
-    st.markdown(chat_html, unsafe_allow_html=True)
+        st.rerun()
 
-    st.markdown("""
-    <script>
-    function scrollToBottom() {
-        const chatBox = window.parent.document.getElementById('chatBox');
-        if (chatBox) {
-            chatBox.scrollTop = chatBox.scrollHeight;
-        }
-    }
+        with st.spinner("💬 Patient is responding..."):
+            reply = call_llm_as_patient(st.session_state.case, st.session_state.history)
+            audio_file = tts_mp3(reply, st.session_state.gender)
 
-    window.addEventListener('load', () => {
-        setTimeout(scrollToBottom, 500);
-    });
-
-    const chatBox = window.parent.document.getElementById('chatBox');
-    if (chatBox) {
-        const observer = new MutationObserver(() => scrollToBottom());
-        observer.observe(chatBox, { childList: true, subtree: true });
-    }
-    </script>
-    """, unsafe_allow_html=True)
-
+        st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_file})
+        st.rerun()
 
 
     # 🧠 Process pending message
