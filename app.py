@@ -216,7 +216,8 @@ def extract_case_from_avatar(avatar_name: str) -> str:
     # remove the last part (gender) and the second to last part (patient name)
     return "_".join(parts[:-2])
 
-def call_llm_as_patient(case: Dict, history: List[Dict[str, str]]) -> str:
+
+def call_llm_as_patient_stream(case: Dict, history: List[Dict[str, str]]):
     system_prompt = f"""
     You are role-playing as a **real human patient** in a clinical encounter with a doctor.
     Strictly follow the rules below to ensure a natural, realistic interaction:
@@ -253,13 +254,23 @@ def call_llm_as_patient(case: Dict, history: List[Dict[str, str]]) -> str:
     system = {"role": "system", "content": system_prompt}
     msgs = [system] + [{"role": m["role"], "content": m["content"]} for m in history[-20:]]
 
-    resp = client.chat.completions.create(
+    # ✅ Stream response
+    stream = client.chat.completions.create(
         model=MODEL,
         messages=msgs,
         temperature=0.8,
-        max_tokens=300
+        max_tokens=300,
+        stream=True
     )
-    return resp.choices[0].message.content.strip()
+
+    collected_chunks = []
+    for event in stream:
+        if event.choices[0].delta.get("content"):
+            collected_chunks.append(event.choices[0].delta.content)
+            # Update placeholder text live
+            st.session_state.history[-1]["content"] = "".join(collected_chunks)
+            st.experimental_rerun()  # live update
+    return "".join(collected_chunks)
 
 def tts_mp3(text: str, gender: str = None) -> str:
     """
@@ -378,12 +389,20 @@ else:
         msg = st.session_state.pending_message
         st.session_state.pending_message = None
 
-        with st.spinner("💬 Patient is responding..."):
-            reply = call_llm_as_patient(st.session_state.case, st.session_state.history)
-            audio_file = tts_mp3(reply, st.session_state.gender)
-
-        st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_file})
+        # ✅ Add placeholder assistant message so UI updates immediately
+        st.session_state.history.append({"role": "assistant", "content": "..."})
         st.rerun()
+
+        # Generate LLM reply in streaming mode
+        reply = call_llm_as_patient_stream(st.session_state.case, st.session_state.history[:-1])
+
+        # ✅ Generate audio after text is ready
+        audio_file = tts_mp3(reply, st.session_state.gender)
+
+        # ✅ Replace placeholder with final reply + audio
+        st.session_state.history[-1] = {"role": "assistant", "content": reply, "audio": audio_file}
+        st.rerun()
+
 
     left_icons, input_col = st.columns([0.08, 0.92])
     with left_icons:
