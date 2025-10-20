@@ -216,9 +216,11 @@ def extract_case_from_avatar(avatar_name: str) -> str:
     # remove the last part (gender) and the second to last part (patient name)
     return "_".join(parts[:-2])
 
+
 def call_llm_as_patient_stream(case: Dict, history: List[Dict[str, str]]) -> str:
     """
-    Stream a patient-like response from the LLM with realistic behavior.
+    Stream a patient-like response from the LLM with realistic behavior,
+    handling empty streaming events safely.
     """
 
     system_prompt = f"""
@@ -270,13 +272,16 @@ def call_llm_as_patient_stream(case: Dict, history: List[Dict[str, str]]) -> str
     placeholder = st.empty()
 
     for event in stream:
-        # ✅ Use dict access instead of attribute access
-        delta = event["choices"][0]["delta"].get("content")
-        if delta:
-            collected_chunks.append(delta)
-            current_text = "".join(collected_chunks)
-            st.session_state.history[-1]["content"] = current_text
-            placeholder.markdown(current_text, unsafe_allow_html=True)
+        # ✅ Safely check for content
+        if "choices" in event and event["choices"]:
+            delta = event["choices"][0].get("delta", {})
+            if "content" in delta:
+                content_piece = delta["content"]
+                collected_chunks.append(content_piece)
+
+                current_text = "".join(collected_chunks)
+                st.session_state.history[-1]["content"] = current_text
+                placeholder.markdown(current_text, unsafe_allow_html=True)
 
     return "".join(collected_chunks)
 
