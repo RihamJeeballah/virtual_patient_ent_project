@@ -1,7 +1,7 @@
 # Blocked Nose – “Can’t Breathe Through My Nose”
 
 ## Opening Stem
-A 28-year-old woman complains of nasal blockage and sneezing on most days for 9 months.
+Wisam is a woman with 28-year-old complains of nasal blockage and sneezing on most days for 9 months.
 
 ## History of Present Illness
 - **Pattern/time course:** Bilateral obstruction, fluctuating; worse mornings and during cleaning; spring flares. Improves at seaside and after showers.  

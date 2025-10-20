@@ -1,7 +1,7 @@
 # Ear Pain (Otalgia)
 
 ## Opening Stem
-A 26-year-old woman presents with right ear pain for 3 days after a beach trip. No long-term illnesses known.
+Sarah is a woman with 26-year-old  presents with right ear pain for 3 days after a beach trip. No long-term illnesses known.
 
 ## History of Present Illness
 - **Onset/course:** Started the morning after swimming in the sea; gradually worsened over 72 hours.  

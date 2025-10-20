@@ -31,6 +31,11 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 # ==========================
 # 🏫 HEADER
 # ==========================
+@st.cache_data
+def get_base64_image(path):
+    with open(path, "rb") as img_f:
+        return base64.b64encode(img_f.read()).decode()
+
 LOGO_PATH = "logo.png"
 st.markdown(f"""
 <style>
@@ -60,7 +65,7 @@ section.main {{ padding-top: 0rem; margin-top: 0rem; }}
 </style>
 <div class='header-banner'>
   <div class='header-content'>
-    <img src='data:image/png;base64,{base64.b64encode(open(LOGO_PATH, "rb").read()).decode()}' alt='Logo'>
+    <img src='data:image/png;base64,{get_base64_image(LOGO_PATH)}' alt='Logo'>
     <div class='header-text'>
         <h1>Sultan Qaboos University</h1>
         <h2>College of Medicine and Health Sciences</h2>
@@ -373,9 +378,11 @@ else:
     if st.session_state.pending_message:
         msg = st.session_state.pending_message
         st.session_state.pending_message = None
-        reply = call_llm_as_patient(st.session_state.case, st.session_state.history)
-        # ✅ Use gender-based TTS
-        audio_file = tts_mp3(reply, st.session_state.gender)
+
+        with st.spinner("💬 Patient is responding..."):
+            reply = call_llm_as_patient(st.session_state.case, st.session_state.history)
+            audio_file = tts_mp3(reply, st.session_state.gender)
+
         st.session_state.history.append({"role": "assistant", "content": reply, "audio": audio_file})
         st.rerun()
 
@@ -392,7 +399,7 @@ else:
             if user_text:
                 st.session_state.history.append({"role": "user", "content": user_text})
                 st.session_state.pending_message = user_text
-                st.rerun()
+                
         else:
             audio_data = st.audio_input("Record your question", label_visibility="collapsed")
 
