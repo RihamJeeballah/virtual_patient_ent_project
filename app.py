@@ -132,6 +132,22 @@ body, .block-container {background-color: #f8f9fb;}
 </style>
 """, unsafe_allow_html=True)
 
+
+
+# ==========================
+# LANGUAGE TOGGLE
+# ==========================
+if "language" not in st.session_state:
+    st.session_state.language = "English"
+
+st.session_state.language = st.radio(
+    "🌐 Select Language",
+    ["English", "Arabic"],
+    horizontal=True
+)
+
+
+
 # ==========================
 # 🧠 HELPERS
 # ==========================
@@ -176,8 +192,13 @@ def extract_case_from_avatar(avatar_name: str) -> str:
     return "_".join(parts[:-2])
 
 def call_llm_as_patient(case: Dict, history: List[Dict[str, str]]) -> str:
+    lang_instruction = (
+    "Respond ONLY in clear, natural Arabic." if st.session_state.language == "Arabic"
+    else "Respond ONLY in clear, natural English."
+)
     system_prompt = f"""
     You are role-playing as a **real human patient** in a clinical encounter with a doctor.
+    {lang_instruction}
     Strictly follow the rules below to ensure a natural, realistic interaction:
 
     1. **Stay fully in character as the patient.**
@@ -269,6 +290,8 @@ if "input_mode" not in st.session_state: st.session_state.input_mode = "keyboard
 if "pending_message" not in st.session_state: st.session_state.pending_message = None
 if "gender" not in st.session_state: st.session_state.gender = "male"  # default
 
+
+
 # ==========================
 # PATIENT SELECTION
 # ==========================
@@ -329,7 +352,7 @@ else:
         st.markdown(f"""
         <div style='display:flex;flex-direction:column;align-items:center;'>
             <img src='data:image/png;base64,{base64.b64encode(open(st.session_state.avatar_path, "rb").read()).decode()}'
-                 style='border-radius:20px;width:500px;max-width:100%;height:auto;object-fit:cover;margin-bottom:15px;'>
+                 style='border-radius:20px;width:300px;max-width:100%;height:auto;object-fit:cover;margin-bottom:15px;'>
             <h2 style='margin:0;text-align:center;font-size:26px;'>{st.session_state.patient_name}</h2>
             <div style='color:#777;font-size:16px;text-align:center;'>{st.session_state.case.get("title","")}</div>
         </div>
