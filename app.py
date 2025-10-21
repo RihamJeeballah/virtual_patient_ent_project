@@ -353,7 +353,7 @@ else:
         st.markdown(f"""
         <div style='display:flex;flex-direction:column;align-items:center;'>
             <img src='data:image/png;base64,{base64.b64encode(open(st.session_state.avatar_path, "rb").read()).decode()}'
-                 style='border-radius:20px;width:400px;max-width:100%;height:auto;object-fit:cover;margin-bottom:15px;'>
+                 style='border-radius:20px;width:450px;max-width:100%;height:auto;object-fit:cover;margin-bottom:15px;'>
             <h2 style='margin:0;text-align:center;font-size:26px;'>{st.session_state.patient_name}</h2>
             <div style='color:#777;font-size:16px;text-align:center;'>{st.session_state.case.get("title","")}</div>
         </div>
